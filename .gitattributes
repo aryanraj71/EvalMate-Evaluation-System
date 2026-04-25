@@ -1,6 +1,4 @@
+frontend/* linguist-vendored
+static/* linguist-vendored
+client/* linguist-vendored
 *.js linguist-vendored
-*.jsx linguist-vendored
-*.ts linguist-vendored
-*.tsx linguist-vendored
-*.css linguist-vendored
-*.html linguist-vendored
