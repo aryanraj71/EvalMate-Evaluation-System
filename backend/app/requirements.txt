@@ -1,0 +1,36 @@
+# Core Backend
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+python-dotenv
+
+# Authentication & Security
+python-jose
+passlib[bcrypt]
+
+# Database (MongoDB)
+motor
+pymongo
+
+# OCR & Image Processing
+easyocr
+opencv-python
+pillow
+numpy
+pdf2image
+pytesseract
+
+# PDF Handling
+PyMuPDF
+
+# NLP & ML
+torch
+transformers
+scikit-learn
+sentence-transformers
+
+# Utilities
+uuid
+python-dateutil
+tqdm
