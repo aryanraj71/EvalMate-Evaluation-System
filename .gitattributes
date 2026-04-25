@@ -1,4 +1,6 @@
-frontend/* linguist-vendored
-static/* linguist-vendored
-client/* linguist-vendored
-*.js linguist-vendored
+*.html linguist-detectable=false
+templates/* linguist-detectable=false
+
+dist/* linguist-vendored
+build/* linguist-vendored
+node_modules/* linguist-vendored
