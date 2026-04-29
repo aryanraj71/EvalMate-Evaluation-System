@@ -624,38 +624,41 @@ def compute_semantic_similarity(text1: str, text2: str) -> float:
 
 async def compute_similarity_async(student_answer: str, concept_description: str) -> float:
     """
-    Compute similarity for a single concept:
-
-    - For DEFINITION / TECHNIQUE / COMPARISON concepts:
-        Use local semantic + keyword scoring only (fast, free, works well).
-
-    - For EXAMPLE / OPEN concepts (student must supply an instance):
-        Use LLM scoring — tries Groq first (free, 14,400/day), falls back to
-        Gemini if GEMINI_API_KEY is set but GROQ_API_KEY is not.
-        Always takes max(local, llm) so students never lose marks from LLM errors.
+    Standard scoring: semantic for definitions, LLM for examples.
+    Returns a single combined score (existing behavior — used for total_marks).
     """
     local_score = compute_semantic_similarity(student_answer, concept_description)
 
     if _is_example_or_open_question(concept_description):
         llm_score = None
-
-        # Primary: Groq (free, generous quota, fast)
         if GROQ_API_KEY:
             llm_score = await _groq_score(student_answer, concept_description)
-
-        # Fallback: Gemini (if no Groq key but Gemini key is set)
         if llm_score is None and GEMINI_API_KEY and not GROQ_API_KEY:
             llm_score = await _gemini_score(student_answer, concept_description)
-
         if llm_score is not None:
-            final = max(local_score, llm_score)   # benefit of doubt to student
-            logger.info(
-                f"Example concept — local={local_score:.2f}, "
-                f"llm={llm_score:.2f}, final={final:.2f}"
-            )
+            final = max(local_score, llm_score)
+            logger.info(f"Example concept — local={local_score:.2f}, llm={llm_score:.2f}, final={final:.2f}")
             return float(np.clip(final, 0, 1))
 
     return local_score
+
+
+async def compute_llm_score_for_concept(student_answer: str, concept_description: str) -> float:
+    """
+    Full LLM scoring for ANY concept type (not just examples).
+    Used for the dual-assessment feature so faculty can compare
+    pure-LLM marks vs semantic marks side by side.
+    Falls back to semantic if no LLM key is configured.
+    """
+    llm_score = None
+    if GROQ_API_KEY:
+        llm_score = await _groq_score(student_answer, concept_description)
+    if llm_score is None and GEMINI_API_KEY:
+        llm_score = await _gemini_score(student_answer, concept_description)
+    if llm_score is not None:
+        return float(np.clip(llm_score, 0, 1))
+    # No LLM available — fall back to semantic
+    return compute_semantic_similarity(student_answer, concept_description)
 
 
 def _similarity_to_marks_pct(similarity: float) -> float:
@@ -1687,30 +1690,45 @@ async def process_answer_script_and_update(
                     continue
 
                 concept_scores = []
-                total_marks = 0
+                total_marks_sem = 0    # semantic-only total
+                total_marks_llm = 0    # full-LLM total
                 max_marks = 0
 
                 for concept in rubric["concepts"]:
-                    # ── FIX 2: use async similarity with Gemini fallback ──
-                    similarity = await compute_similarity_async(q_answer_text, concept["description"])
-                    raw_awarded = _similarity_to_marks_pct(similarity) * concept["marks"]
-                    # ── FIX 3: standardise to 0 / 0.5 increments ──────────
-                    awarded_marks = standardise_marks(raw_awarded)
+                    # ── Semantic score (local, fast — always computed on upload) ──
+                    sem_sim   = compute_semantic_similarity(q_answer_text, concept["description"])
+                    sem_pct   = _similarity_to_marks_pct(sem_sim)
+                    sem_marks = min(standardise_marks(sem_pct * concept["marks"]), concept["marks"])
+
+                    # ── Combined score (semantic + LLM for examples only) ──────
+                    # This is the default "Semantic+LLM" mode shown in Results.
+                    # For example concepts: max(semantic, LLM). For others: semantic only.
+                    combined_sim   = await compute_similarity_async(q_answer_text, concept["description"])
+                    combined_marks = min(standardise_marks(_similarity_to_marks_pct(combined_sim) * concept["marks"]), concept["marks"])
 
                     concept_scores.append({
-                        "concept": concept["description"],
-                        "max_marks": concept["marks"],
-                        "awarded_marks": awarded_marks,   # already standardised
-                        "similarity_score": round(similarity, 3)
+                        "concept":              concept["description"],
+                        "max_marks":            concept["marks"],
+                        # Semantic + LLM for examples (default mode)
+                        "awarded_marks":        combined_marks,
+                        "similarity_score":     round(combined_sim, 3),
+                        # Pure semantic only
+                        "awarded_marks_sem":    sem_marks,
+                        "similarity_score_sem": round(sem_sim, 3),
+                        # Full LLM — computed on-demand when faculty requests LLM mode
+                        # Stored as None until compute_llm_assessment() is called
+                        "awarded_marks_llm":    None,
+                        "similarity_score_llm": None,
                     })
-                    total_marks += awarded_marks
-                    max_marks += concept["marks"]
+                    total_marks_sem += sem_marks
+                    # LLM total is None until on-demand computation
+                    max_marks       += concept["marks"]
 
-                # ── FIX 3: standardise total_marks too ───────────────────
-                total_marks_std = standardise_marks(total_marks)
-                # Use RAW total for confidence (before rounding) so 0-1 range is accurate
-                confidence_score = total_marks / max_marks if max_marks > 0 else 0
-                needs_review = confidence_score < 0.75
+                total_marks_std     = min(standardise_marks(sum(cs["awarded_marks"] for cs in concept_scores)), max_marks)
+                total_marks_sem_std = min(standardise_marks(total_marks_sem), max_marks)
+                total_marks_llm_std = None   # computed on-demand via /evaluations/compute-llm
+                confidence_score    = (sum(cs["awarded_marks"] for cs in concept_scores)) / max_marks if max_marks > 0 else 0
+                needs_review        = confidence_score < 0.75
 
                 evaluation_data = {
                     "id": str(uuid.uuid4()),
@@ -1720,7 +1738,9 @@ async def process_answer_script_and_update(
                     "student_name": student_name,
                     "roll_number": roll_number,
                     "concept_scores": concept_scores,
-                    "total_marks": total_marks_std,       # standardised
+                    "total_marks":     total_marks_std,        # combined (default view)
+                    "total_marks_sem": total_marks_sem_std,    # semantic-only view
+                    "total_marks_llm": total_marks_llm_std,    # full-LLM view
                     "max_marks": max_marks,
                     "confidence_score": round(confidence_score, 3),
                     "needs_review": needs_review,
@@ -2061,6 +2081,166 @@ async def get_student_answers_for_review(
         {"_id": 0}
     ).to_list(1000)
     return answers
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ON-DEMAND FULL-LLM ASSESSMENT
+# Faculty clicks "LLM Mode" in Results → frontend calls this once per assignment
+# → backend calls Groq for every concept × every student and saves results
+# ═══════════════════════════════════════════════════════════════════════════
+
+@api_router.post("/evaluations/compute-llm/{assignment_id}")
+async def compute_llm_assessment(
+    assignment_id: str,
+    background_tasks: BackgroundTasks,
+    current_faculty: dict = Depends(get_current_faculty)
+):
+    """
+    Trigger full-LLM re-evaluation for every student in this assignment.
+    Calls Groq for EVERY rubric concept (not just examples).
+    Results are stored as awarded_marks_llm per concept and total_marks_llm per evaluation.
+
+    This is rate-limited (2.5s per Groq call) so for 60 students × 5 questions × 3 concepts
+    = 900 calls × 2.5s = ~38 minutes. Runs entirely in background.
+    Frontend polls /evaluations/llm-status/{assignment_id} to check progress.
+    """
+    assignment = await db.assignments.find_one(
+        {"id": assignment_id, "faculty_id": current_faculty["id"]}
+    )
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    # Check if already computing
+    existing = await db.llm_compute_status.find_one({"assignment_id": assignment_id})
+    if existing and existing.get("status") == "running":
+        return {"message": "LLM assessment already running", "status": "running",
+                "progress": existing.get("progress", 0), "total": existing.get("total", 0)}
+
+    # Count evaluations to process
+    total_evals = await db.evaluations.count_documents({"assignment_id": assignment_id})
+
+    # Create/reset status record
+    await db.llm_compute_status.replace_one(
+        {"assignment_id": assignment_id},
+        {"assignment_id": assignment_id, "status": "running",
+         "progress": 0, "total": total_evals,
+         "started_at": datetime.now(timezone.utc).isoformat()},
+        upsert=True
+    )
+
+    background_tasks.add_task(_run_llm_assessment_background, assignment_id, total_evals)
+
+    return {"message": f"LLM assessment started for {total_evals} evaluations",
+            "status": "running", "total": total_evals}
+
+
+@api_router.get("/evaluations/llm-status/{assignment_id}")
+async def get_llm_status(
+    assignment_id: str,
+    current_faculty: dict = Depends(get_current_faculty)
+):
+    """Poll this to check LLM computation progress."""
+    status = await db.llm_compute_status.find_one(
+        {"assignment_id": assignment_id}, {"_id": 0}
+    )
+    if not status:
+        return {"status": "not_started", "progress": 0, "total": 0}
+    return status
+
+
+async def _run_llm_assessment_background(assignment_id: str, total_evals: int):
+    """
+    Background task: evaluate every concept in every evaluation using full LLM.
+    Saves awarded_marks_llm and total_marks_llm back to DB.
+    """
+    progress = 0
+    try:
+        # Load all evaluations for this assignment
+        evaluations = await db.evaluations.find(
+            {"assignment_id": assignment_id}, {"_id": 0}
+        ).to_list(10000)
+
+        # Load all student answers (for the answer text)
+        all_answers = await db.student_answers.find(
+            {"assignment_id": assignment_id}, {"_id": 0}
+        ).to_list(10000)
+
+        # Map: answer_id → answer_text
+        answer_map = {a["id"]: a.get("answer_text", "") for a in all_answers}
+
+        for ev in evaluations:
+            try:
+                answer_text = answer_map.get(ev.get("student_answer_id"), "")
+                if not answer_text or len(answer_text.strip()) < 5:
+                    progress += 1
+                    continue
+
+                updated_concepts = []
+                total_llm = 0.0
+
+                for cs in ev.get("concept_scores", []):
+                    concept_desc = cs.get("concept", "")
+                    max_marks    = cs.get("max_marks", 0)
+
+                    # Call Groq for this concept
+                    llm_score = None
+                    if GROQ_API_KEY:
+                        llm_score = await _groq_score(answer_text, concept_desc)
+                    if llm_score is None and GEMINI_API_KEY:
+                        llm_score = await _gemini_score(answer_text, concept_desc)
+
+                    # Fall back to semantic if LLM unavailable
+                    if llm_score is None:
+                        llm_score = compute_semantic_similarity(answer_text, concept_desc)
+
+                    llm_pct   = _similarity_to_marks_pct(llm_score)
+                    # Cap at concept max BEFORE standardising to prevent rounding over
+                    llm_marks = min(standardise_marks(llm_pct * max_marks), max_marks)
+
+                    updated_cs = {**cs,
+                        "awarded_marks_llm":    llm_marks,
+                        "similarity_score_llm": round(llm_score, 3)
+                    }
+                    updated_concepts.append(updated_cs)
+                    total_llm += llm_marks
+
+                ev_max = ev.get("max_marks", 0)
+                total_llm_std = min(standardise_marks(total_llm), ev_max)
+
+                # Save back to DB
+                await db.evaluations.update_one(
+                    {"id": ev["id"]},
+                    {"$set": {
+                        "concept_scores":    updated_concepts,
+                        "total_marks_llm":   total_llm_std,
+                    }}
+                )
+
+                progress += 1
+                if progress % 10 == 0:
+                    await db.llm_compute_status.update_one(
+                        {"assignment_id": assignment_id},
+                        {"$set": {"progress": progress}}
+                    )
+
+            except Exception as e:
+                logger.error(f"LLM assessment failed for eval {ev.get('id')}: {e}")
+                progress += 1
+
+        # Mark complete
+        await db.llm_compute_status.update_one(
+            {"assignment_id": assignment_id},
+            {"$set": {"status": "done", "progress": progress,
+                      "completed_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        logger.info(f"✅ LLM assessment complete for {assignment_id}: {progress} evals")
+
+    except Exception as e:
+        await db.llm_compute_status.update_one(
+            {"assignment_id": assignment_id},
+            {"$set": {"status": "error", "error": str(e)}}
+        )
+        logger.error(f"LLM assessment background task failed: {e}")
 
 @api_router.get("/evaluations/assignment/{assignment_id}")
 async def get_evaluations(

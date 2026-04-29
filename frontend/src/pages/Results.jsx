@@ -3,12 +3,14 @@ import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import {
   BarChart2, ChevronDown, FileText, Users, CheckCircle, Clock,
-  AlertCircle, Download, RefreshCw, Search, Eye, Trash2, X
+  AlertCircle, Download, RefreshCw, Search, Eye, Trash2, X,
+  Cpu, Brain, Loader
 } from "lucide-react";
 
 function ScoreBadge({ score, max }) {
   if (score == null || max == null || max === 0) return <span style={{ color: "var(--text-tertiary)" }}>—</span>;
-  const pct = (score / max) * 100;
+  const cappedScore = Math.min(score, max);   // never exceed max marks
+  const pct = (cappedScore / max) * 100;
   const color = pct >= 80 ? "#16a34a" : pct >= 60 ? "#d97706" : "#b91c1c";
   const bg    = pct >= 80 ? "#dcfce7" : pct >= 60 ? "#fef9c3" : "#fee2e2";
   return (
@@ -71,10 +73,13 @@ function DeleteConfirmModal({ student, onConfirm, onCancel, deleting }) {
   );
 }
 
+// Persist selected assignment in Results across navigation (cleared on logout)
+const RESULTS_SEL_KEY = "evalmate_results_assignment";
+
 export default function Results() {
   const navigate = useNavigate();
   const [assignments, setAssignments]           = useState([]);
-  const [selectedId, setSelectedId]             = useState("");
+  const [selectedId, setSelectedId]             = useState(() => sessionStorage.getItem(RESULTS_SEL_KEY) || "");
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [dropdownOpen, setDropdownOpen]         = useState(false);
   const [loadingAssignments, setLoadingAssignments] = useState(true);
@@ -85,14 +90,35 @@ export default function Results() {
   const [searchQuery, setSearchQuery]           = useState("");
 
   // Delete state
-  const [deleteTarget, setDeleteTarget]         = useState(null); // student object
+  const [deleteTarget, setDeleteTarget]         = useState(null);
   const [deleting, setDeleting]                 = useState(false);
+
+  // ── Dual scoring mode ──────────────────────────────────────────────────
+  // "semantic" = current model (similarity + LLM for examples only)
+  // "llm"      = full LLM assessment of every concept
+  const [scoringMode,   setScoringMode]   = useState("semantic");
+  const [llmStatus,     setLlmStatus]     = useState(null);  // null | {status, progress, total}
+  const [triggeringLlm, setTriggeringLlm] = useState(false);
+  const [showLlmConfirm, setShowLlmConfirm] = useState(false);
 
   const dropdownRef = useRef(null);
 
   useEffect(() => {
     API.get("/assignments")
-      .then(res => setAssignments(res.data))
+      .then(res => {
+        setAssignments(res.data);
+        // Auto-load persisted assignment
+        const persistedId = sessionStorage.getItem(RESULTS_SEL_KEY);
+        if (persistedId) {
+          const found = res.data.find(a => a.id === persistedId);
+          if (found) {
+            setSelectedId(persistedId);
+            setSelectedAssignment(found);
+            fetchResults(persistedId);
+            checkLlmStatus(persistedId);   // restore llmReady state on mount
+          }
+        }
+      })
       .catch(console.error)
       .finally(() => setLoadingAssignments(false));
   }, []);
@@ -122,11 +148,14 @@ export default function Results() {
         if (!evalMap[key]) {
           evalMap[key] = {
             student_name: ev.student_name, roll_number: ev.roll_number,
-            total_marks: 0, max_marks: 0, evaluations: [], needs_review: false
+            total_marks: 0, total_marks_llm: 0, max_marks: 0, evaluations: [], needs_review: false
           };
         }
-        evalMap[key].total_marks += ev.reviewed ? (ev.final_marks ?? ev.total_marks) : ev.total_marks;
-        evalMap[key].max_marks   += ev.max_marks;
+        // Store both: combined (semantic+LLM for examples) and full-LLM totals
+        const baseMarks = ev.reviewed ? (ev.final_marks ?? ev.total_marks) : ev.total_marks;
+        evalMap[key].total_marks     += baseMarks;
+        evalMap[key].total_marks_llm += ev.total_marks_llm ?? ev.total_marks;
+        evalMap[key].max_marks       += ev.max_marks;
         evalMap[key].evaluations.push(ev);
         if (ev.needs_review && !ev.reviewed) evalMap[key].needs_review = true;
       });
@@ -157,12 +186,67 @@ export default function Results() {
     }
   };
 
+  // Trigger on-demand LLM assessment (skips if already computed in DB)
+  const triggerLlmAssessment = async () => {
+    if (!selectedId) return;
+    // Re-check DB status before triggering — skip if already done
+    try {
+      const statusRes = await API.get(`/evaluations/llm-status/${selectedId}`);
+      if (statusRes.data.status === "done" || statusRes.data.status === "running") {
+        setLlmStatus(statusRes.data);
+        return;   // already computed, no need to trigger again
+      }
+    } catch (_) { /* ignore — proceed with trigger */ }
+
+    setTriggeringLlm(true);
+    try {
+      const res = await API.post(`/evaluations/compute-llm/${selectedId}`);
+      setLlmStatus(res.data);
+    } catch (err) {
+      alert("Failed to start LLM assessment: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setTriggeringLlm(false);
+    }
+  };
+
+  // Poll LLM status while running
+  useEffect(() => {
+    if (!selectedId || !llmStatus || llmStatus.status !== "running") return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await API.get(`/evaluations/llm-status/${selectedId}`);
+        setLlmStatus(res.data);
+        if (res.data.status === "done") {
+          clearInterval(interval);
+          // Refresh results to get updated LLM marks
+          fetchResults(selectedId, true);
+        }
+      } catch (e) { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [selectedId, llmStatus?.status]);
+
+  // Check LLM status when assignment selected — also detects "already done" from DB
+  const checkLlmStatus = async (id) => {
+    try {
+      const res = await API.get(`/evaluations/llm-status/${id}`);
+      setLlmStatus(res.data);
+    } catch (e) { setLlmStatus(null); }
+  };
+
+  // True if LLM marks are ready — no need to trigger again or show confirmation
+  const llmReady = llmStatus?.status === "done" || llmStatus?.status === "running";
+
   const handleSelect = (a) => {
     setSelectedId(a.id);
     setSelectedAssignment(a);
+    sessionStorage.setItem(RESULTS_SEL_KEY, a.id);
     setDropdownOpen(false);
     setAllStudents([]);
+    setScoringMode("semantic");
+    setLlmStatus(null);
     fetchResults(a.id);
+    checkLlmStatus(a.id);
   };
 
   const handleExport = async (format) => {
@@ -209,8 +293,49 @@ export default function Results() {
     ? allStudents.filter(s => s.max_marks > 0).reduce((acc, s) => acc + (s.total_marks / s.max_marks * 100), 0) / evaluatedCount
     : null;
 
+
+  // ── Full LLM confirmation modal ──────────────────────────────────────────
+  const LlmConfirmModal = () => (
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ background: "white", borderRadius: 16, padding: 32, maxWidth: 460, width: "100%", boxShadow: "0 25px 50px rgba(0,0,0,0.2)", animation: "fadeUp 0.2s ease" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <div style={{ padding: 10, background: "#ede9fe", borderRadius: 10, color: "#7c3aed", flexShrink: 0 }}><Brain size={20} /></div>
+          <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>Run Full LLM Assessment?</h3>
+        </div>
+        <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+          <p style={{ margin: "0 0 8px", color: "#4c1d95", fontSize: "0.9rem", fontWeight: 600 }}>What this does:</p>
+          <ul style={{ margin: 0, paddingLeft: 18, color: "#5b21b6", fontSize: "0.85rem", lineHeight: 1.7 }}>
+            <li>AI (Groq LLM) will evaluate <strong>every concept</strong> in every student's answer</li>
+            <li>Unlike Semantic mode, this works even when rubric only has question text (e.g. "Define supervised learning")</li>
+            <li>For {allStudents.length} students × multiple questions, this may take <strong>a few minutes</strong></li>
+            <li>You can leave the page — results update in the background</li>
+          </ul>
+        </div>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", margin: "0 0 24px" }}>
+          You can switch back to Semantic + LLM mode anytime to compare results.
+        </p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <button onClick={() => setShowLlmConfirm(false)} className="btn btn-secondary">Cancel</button>
+          <button
+            onClick={() => {
+              setShowLlmConfirm(false);
+              setScoringMode("llm");
+              if (llmStatus?.status !== "done" && llmStatus?.status !== "running") triggerLlmAssessment();
+            }}
+            style={{ padding: "9px 20px", background: "#7c3aed", color: "white", border: "none", borderRadius: 8, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: "0.9rem" }}
+          >
+            <Brain size={15} /> Yes, Run Full LLM
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", width: "100%" }}>
+
+      {/* LLM confirmation modal */}
+      {showLlmConfirm && <LlmConfirmModal />}
 
       {/* Delete confirmation modal */}
       {deleteTarget && (
@@ -344,7 +469,56 @@ export default function Results() {
               </div>
             </div>
 
-            {/* Table */}
+            {/* Scoring mode toggle — single, clean */}
+            <div style={{ padding: "14px 20px", background: "linear-gradient(135deg,#f0f9ff,#ede9fe)", borderBottom: "1px solid var(--border-light)", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-primary)" }}>Scoring Method</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--text-tertiary)" }}>Choose which evaluation to view</span>
+              </div>
+
+              {/* Buttons */}
+              <div style={{ display: "flex", background: "white", borderRadius: 10, padding: 3, gap: 3, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                <button
+                  onClick={() => setScoringMode("combined")}
+                  style={{ padding: "7px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "combined" ? "var(--accent-color)" : "transparent", color: scoringMode === "combined" ? "white" : "var(--text-secondary)", boxShadow: scoringMode === "combined" ? "0 2px 6px rgba(99,102,241,0.3)" : "none" }}
+                >
+                  <Cpu size={13} /> Semantic + LLM
+                </button>
+                <button
+                  onClick={() => {
+                    if (scoringMode === "llm") return;          // already selected
+                    if (llmReady) { setScoringMode("llm"); return; }  // already computed — no confirmation needed
+                    setShowLlmConfirm(true);                    // first time — show confirmation
+                  }}
+                  style={{ padding: "7px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "llm" ? "#7c3aed" : "transparent", color: scoringMode === "llm" ? "white" : "var(--text-secondary)", boxShadow: scoringMode === "llm" ? "0 2px 6px rgba(124,58,237,0.3)" : "none" }}
+                >
+                  <Brain size={13} /> {llmReady && scoringMode !== "llm" ? "Full LLM ✓" : "Full LLM"}
+                </button>
+              </div>
+
+              {/* Status indicator — next to buttons */}
+              {scoringMode === "combined" && (
+                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontStyle: "italic" }}>
+                  Semantic similarity for definitions, LLM only for examples.
+                </span>
+              )}
+              {scoringMode === "llm" && (
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8rem", fontWeight: 600,
+                  color: llmStatus?.status === "running" ? "#7c3aed" : llmStatus?.status === "done" ? "#15803d" : "#7c3aed" }}>
+                  {llmStatus?.status === "running" ? (
+                    <><Loader size={13} style={{ animation: "spin 1s linear infinite" }} /> AI evaluating… {llmStatus.progress}/{llmStatus.total} done</>
+                  ) : llmStatus?.status === "done" ? (
+                    <>✓ Full LLM marks ready</>
+                  ) : triggeringLlm ? (
+                    <><Loader size={13} style={{ animation: "spin 1s linear infinite" }} /> Starting…</>
+                  ) : (
+                    <>⏳ LLM evaluation queued</>
+                  )}
+                </span>
+              )}
+            </div>
+
+          {/* Table */}
             {allStudents.length === 0 ? (
               <div style={{ textAlign: "center", padding: 48, color: "var(--text-tertiary)" }}>
                 <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>📋</div>
@@ -373,7 +547,10 @@ export default function Results() {
                         <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>{s.student_name}</td>
                         <td style={{ padding: "12px 16px", color: "var(--text-secondary)", fontFamily: "monospace", fontSize: "0.85rem" }}>{s.roll_number || "—"}</td>
                         <td style={{ padding: "12px 16px" }}>
-                          <ScoreBadge score={s.total_marks} max={s.max_marks} />
+                          <ScoreBadge
+                          score={scoringMode === "llm" ? s.total_marks_llm : s.total_marks}
+                          max={s.max_marks}
+                        />
                         </td>
                         <td style={{ padding: "12px 16px" }}>
                           {s.status === "evaluated" && (
@@ -389,8 +566,8 @@ export default function Results() {
                         <td style={{ padding: "12px 16px" }}>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             <button
-                              onClick={() => navigate(`/assignment/${selectedId}/review`, { state: { startRoll: s.roll_number } })}
-                              style={{ padding: "5px 12px", background: "var(--accent-light)", color: "var(--accent-color)", border: "none", borderRadius: 7, cursor: "pointer", fontWeight: 600, fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 5 }}
+                              onClick={() => navigate(`/assignment/${selectedId}/review`, { state: { startRoll: s.roll_number, scoringMode } })}
+                              style={{ padding: "5px 12px", background: scoringMode === "llm" ? "#ede9fe" : "var(--accent-light)", color: scoringMode === "llm" ? "#7c3aed" : "var(--accent-color)", border: "none", borderRadius: 7, cursor: "pointer", fontWeight: 600, fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 5 }}
                             >
                               <Eye size={13} /> Detail
                             </button>

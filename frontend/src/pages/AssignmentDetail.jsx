@@ -283,7 +283,11 @@ export function AssignmentDetail() {
                   </button>
 
                   <button
-                    onClick={() => navigate(`/assignment/${assignmentId}/results`)}
+                    onClick={() => {
+                    // Pre-select this assignment in the Results page
+                    sessionStorage.setItem("evalmate_results_assignment", assignmentId);
+                    navigate("/results");
+                  }}
                     className="action-card"
                     style={{ textAlign: 'left', border: 'none', background: 'var(--bg-tertiary)', width: '100%', alignItems: 'flex-start' }}
                   >

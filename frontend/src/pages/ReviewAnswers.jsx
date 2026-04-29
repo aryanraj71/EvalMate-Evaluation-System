@@ -4,7 +4,7 @@ import API from "../services/api";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Check, ShieldCheck,
   AlertTriangle, FileText, MessageSquare, User, BookOpen,
-  CheckCircle, ChevronDown, ChevronUp
+  CheckCircle, ChevronDown, ChevronUp, Cpu, Brain
 } from "lucide-react";
 
 // ── helpers ────────────────────────────────────────────────
@@ -45,11 +45,30 @@ export default function ReviewAnswers() {
   const [loading, setLoading]         = useState(true);
   // which question cards are expanded
   const [expanded, setExpanded]       = useState({});
+  // Scoring mode — inherits from Results page, faculty can switch here too
+  const [scoringMode, setScoringMode] = useState(
+    () => location.state?.scoringMode === "llm" ? "llm" : "semantic"
+  );
 
   // ── fetch on mount ──
   useEffect(() => {
     fetchAll();
   }, [assignmentId]);
+
+  // ── When faculty switches scoring mode, update override defaults ─────────
+  useEffect(() => {
+    if (!students.length) return;
+    const init = {};
+    students.forEach(s => {
+      s.evaluations.forEach(ev => {
+        const base = ev.reviewed && ev.final_marks != null ? ev.final_marks
+          : scoringMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm
+          : ev.total_marks;
+        init[ev.id] = String(base);
+      });
+    });
+    setMarksOverride(init);
+  }, [scoringMode]);
 
   const fetchAll = async () => {
     try {
@@ -81,9 +100,14 @@ export default function ReviewAnswers() {
       setStudents(grouped);
 
       // Pre-fill marks overrides: use final_marks if already reviewed, else AI total
+      // (mode-switch later updates these via the scoringMode effect below)
       const init = {};
+      const initMode = location.state?.scoringMode === "llm" ? "llm" : "semantic";
       evals.forEach(ev => {
-        init[ev.id] = String(ev.reviewed && ev.final_marks != null ? ev.final_marks : ev.total_marks);
+        const base = ev.reviewed && ev.final_marks != null ? ev.final_marks
+          : initMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm
+          : ev.total_marks;
+        init[ev.id] = String(base);
       });
       setMarksOverride(init);
 
@@ -250,6 +274,21 @@ export default function ReviewAnswers() {
 
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", width: "100%" }}>
+
+      {/* ── Scoring mode toggle ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", background: "var(--bg-tertiary)", borderRadius: 10, padding: 3 }}>
+          <button onClick={() => setScoringMode("semantic")} style={{ padding: "6px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "semantic" ? "white" : "transparent", color: scoringMode === "semantic" ? "var(--accent-color)" : "var(--text-secondary)", boxShadow: scoringMode === "semantic" ? "0 1px 4px rgba(0,0,0,0.1)" : "none" }}>
+            <Cpu size={13} /> Semantic + LLM
+          </button>
+          <button onClick={() => setScoringMode("llm")} style={{ padding: "6px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "llm" ? "white" : "transparent", color: scoringMode === "llm" ? "#7c3aed" : "var(--text-secondary)", boxShadow: scoringMode === "llm" ? "0 1px 4px rgba(0,0,0,0.1)" : "none" }}>
+            <Brain size={13} /> Full LLM
+          </button>
+        </div>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", fontStyle: "italic" }}>
+          {scoringMode === "semantic" ? "Semantic similarity + LLM for examples" : "Full LLM — every concept evaluated by AI"}
+        </span>
+      </div>
 
       {/* ── Top bar ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
@@ -432,16 +471,23 @@ export default function ReviewAnswers() {
                       </div>
                       <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>Rubric Concept Breakdown</span>
                       <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>
-                        Total: {ev.total_marks.toFixed(1)} / {qMax} marks
+                        Total ({scoringMode === "llm" ? "LLM" : "Semantic"}): {(scoringMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm : ev.total_marks).toFixed(1)} / {qMax} marks
                       </span>
                     </div>
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {ev.concept_scores.map((cs_item, cidx) => {
-                        const mColor = cs_item.similarity_score >= 0.80 ? "#15803d"
-                          : cs_item.similarity_score >= 0.60 ? "#92400e" : "#b91c1c";
-                        const mBg = cs_item.similarity_score >= 0.80 ? "#dcfce7"
-                          : cs_item.similarity_score >= 0.60 ? "#fef9c3" : "#fee2e2";
+                        // Use mode-appropriate score and marks
+                        const dispScore = scoringMode === "llm" && cs_item.similarity_score_llm != null
+                          ? cs_item.similarity_score_llm
+                          : cs_item.similarity_score;
+                        const dispMarks = scoringMode === "llm" && cs_item.awarded_marks_llm != null
+                          ? cs_item.awarded_marks_llm
+                          : cs_item.awarded_marks;
+                        const mColor = dispScore >= 0.80 ? "#15803d"
+                          : dispScore >= 0.60 ? "#92400e" : "#b91c1c";
+                        const mBg = dispScore >= 0.80 ? "#dcfce7"
+                          : dispScore >= 0.60 ? "#fef9c3" : "#fee2e2";
                         return (
                           <div key={cidx} style={{
                             background: "var(--bg-secondary)", border: "1px solid var(--border-light)",
@@ -449,7 +495,7 @@ export default function ReviewAnswers() {
                           }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
                               <div style={{ display: "flex", gap: 8, flex: 1 }}>
-                                <span style={{ background: "var(--accent-light)", color: "var(--accent-color)", padding: "2px 8px", borderRadius: 5, fontSize: "0.72rem", fontWeight: 700, flexShrink: 0, height: "fit-content", marginTop: 2 }}>
+                                <span style={{ background: scoringMode === "llm" ? "#ede9fe" : "var(--accent-light)", color: scoringMode === "llm" ? "#7c3aed" : "var(--accent-color)", padding: "2px 8px", borderRadius: 5, fontSize: "0.72rem", fontWeight: 700, flexShrink: 0, height: "fit-content", marginTop: 2 }}>
                                   C{cidx + 1}
                                 </span>
                                 <p style={{ margin: 0, fontSize: "0.87rem", color: "var(--text-primary)", lineHeight: 1.5 }}>
@@ -458,15 +504,15 @@ export default function ReviewAnswers() {
                               </div>
                               <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                                 <span style={{ background: mBg, color: mColor, padding: "3px 9px", borderRadius: 99, fontSize: "0.75rem", fontWeight: 700 }}>
-                                  {(cs_item.similarity_score * 100).toFixed(0)}% match
+                                  {(dispScore * 100).toFixed(0)}% match
                                 </span>
                                 <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>
-                                  {cs_item.awarded_marks.toFixed(2)}/{cs_item.max_marks}
+                                  {dispMarks.toFixed(2)}/{cs_item.max_marks}
                                 </span>
                               </div>
                             </div>
                             <div style={{ marginTop: 8 }}>
-                              <ScoreBar value={cs_item.similarity_score} max={1} color={mColor} />
+                              <ScoreBar value={dispScore} max={1} color={mColor} />
                             </div>
                           </div>
                         );
@@ -484,7 +530,7 @@ export default function ReviewAnswers() {
                       min={0}
                       max={qMax}
                       step={0.5}
-                      value={marksOverride[ev.id] ?? ev.total_marks}
+                      value={marksOverride[ev.id] ?? (scoringMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm : ev.total_marks)}
                       onChange={e => setMarksOverride(p => ({ ...p, [ev.id]: e.target.value }))}
                       style={{
                         width: 80, padding: "6px 10px", border: "1.5px solid #86efac",
