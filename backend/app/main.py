@@ -154,6 +154,7 @@ class AssignmentUpdate(BaseModel):
 class QuestionUpdate(BaseModel):
     question_text: Optional[str] = None
     marks: Optional[float] = None
+    word_limit: Optional[int] = None
 
 class RubricConcept(BaseModel):
     description: str = Field(..., min_length=5)
@@ -246,6 +247,41 @@ def standardise_marks(raw: float) -> float:
     Never returns a value like 13.19 or 7.33.
     """
     return round(raw * 2) / 2
+
+
+def _apply_word_limit_penalty(marks: float, max_marks: float, word_count: int, word_limit: int) -> float:
+    """
+    Apply a graduated mark reduction when the student answer is under the word limit.
+    The penalty is intentionally lenient — within 90% of the limit counts as full compliance.
+    Over the limit → no penalty at all.
+
+    Ratio tiers:
+      >= 0.90  → no penalty  (e.g., limit=50, count=45+)
+      0.70-0.89 → reduce ~15%
+      0.50-0.69 → reduce ~30%
+      0.30-0.49 → reduce ~50%
+      < 0.30    → reduce ~70%
+    """
+    if word_limit is None or word_limit <= 0:
+        return marks
+    if word_count >= word_limit:
+        return marks  # over limit → no penalty
+
+    ratio = word_count / word_limit
+
+    if ratio >= 0.90:
+        penalty = 0.0
+    elif ratio >= 0.70:
+        penalty = 0.15
+    elif ratio >= 0.50:
+        penalty = 0.30
+    elif ratio >= 0.30:
+        penalty = 0.50
+    else:
+        penalty = 0.70
+
+    reduced = marks * (1.0 - penalty)
+    return standardise_marks(max(reduced, 0.0))
 
 
 # ═══════════════════════════════════════════════════════════
@@ -341,34 +377,36 @@ def _fine_grained_chunks(text: str) -> list:
 # FIX 2 ── FREE Gemini fallback for open/example questions
 # ═══════════════════════════════════════════════════════════
 
-def _is_example_or_open_question(concept_description: str) -> bool:
+def _needs_llm_scoring(concept_description: str) -> bool:
     """
-    Returns True ONLY when the rubric concept explicitly asks the student to
-    provide/name/give a real-world example or instance.
+    Returns True when the rubric concept benefits from LLM scoring instead of
+    pure semantic similarity alone.  This covers:
+      - Example/open-ended concepts (student picks their own example)
+      - Difference/comparison concepts (student may phrase differently)
 
     WHY THIS MATTERS:
-    Gemini is called (and costs a rate-limit token) only for these concepts.
-    Definitions, techniques, comparisons, and explanations use local semantic
-    similarity only — which works well for them.
+    LLM is called (and costs a rate-limit token) only for these concepts.
+    Definitions, techniques, and straightforward explanations use local
+    semantic similarity only — which works well for them.
 
-    EXAMPLE concepts (Gemini called):
+    LLM-SCORED concepts:
       "Real-world example: email spam classification (or similar)"
       "Give a real-world application such as fraud detection"
-      "Any valid use case of neural networks"
+      "Difference 1: Supervised uses labeled data, unsupervised does not"
+      "Differentiate between TCP and UDP"
 
-    NON-EXAMPLE concepts (local scorer only):
-      "Prevention technique 1: Cross-validation (e.g., k-fold)"  ← e.g. is clarification
-      "Difference 2: ...based on examples; unsupervised..."       ← mentions examples, not asking for one
+    LOCAL-ONLY concepts:
+      "Prevention technique 1: Cross-validation (e.g., k-fold)"
       "Definition: Supervised learning uses labeled data..."
       "Bias: Error due to wrong assumptions..."
     """
     lower = concept_description.lower().strip()
 
-    # ── Hard negatives: starts with a known definition/technique/comparison label ──
+    # ── Hard negatives: starts with a known definition/technique label ──
     negative_starts = (
         'definition', 'prevention technique', 'training set purpose',
         'testing set purpose', 'general purpose', 'bias:', 'variance:',
-        'tradeoff', 'difference 1:', 'difference 2:', 'overfitting definition',
+        'tradeoff', 'overfitting definition',
         'purpose:', 'technique:', 'supervised learning', 'unsupervised learning',
     )
     for neg in negative_starts:
@@ -385,8 +423,8 @@ def _is_example_or_open_question(concept_description: str) -> bool:
     if 'based on examples' in lower and 'real-world example' not in lower:
         return False
 
-    # ── Strong positives: concept is explicitly asking for an example/instance ──
-    strong_positives = [
+    # ── Strong positives: examples ──
+    example_positives = [
         'real-world example', 'real world example',
         'or similar',           # "(or similar valid example)"
         'any valid',            # "any valid example"
@@ -396,11 +434,28 @@ def _is_example_or_open_question(concept_description: str) -> bool:
         'such as',              # "an application such as..."
         'use case',
     ]
-    if any(p in lower for p in strong_positives):
+    if any(p in lower for p in example_positives):
         return True
 
     # Concept label itself starts with "example" or "real-world"
     if lower.startswith('example:') or lower.startswith('real-world'):
+        return True
+
+    # ── Strong positives: difference/comparison concepts ──
+    # Students may phrase differences very differently from rubric text,
+    # so LLM scoring helps judge semantic equivalence.
+    difference_positives = [
+        'difference 1', 'difference 2', 'difference 3',
+        'difference 4', 'difference 5',
+        'difference:', 'key difference',
+        'differentiate', 'distinguish',
+        'compare and contrast', 'comparison:',
+    ]
+    if any(p in lower for p in difference_positives):
+        return True
+
+    # Starts with "difference" (catches "Difference between X and Y")
+    if lower.startswith('difference'):
         return True
 
     return False
@@ -624,12 +679,12 @@ def compute_semantic_similarity(text1: str, text2: str) -> float:
 
 async def compute_similarity_async(student_answer: str, concept_description: str) -> float:
     """
-    Standard scoring: semantic for definitions, LLM for examples.
+    Standard scoring: semantic for definitions, LLM for examples & differences.
     Returns a single combined score (existing behavior — used for total_marks).
     """
     local_score = compute_semantic_similarity(student_answer, concept_description)
 
-    if _is_example_or_open_question(concept_description):
+    if _needs_llm_scoring(concept_description):
         llm_score = None
         if GROQ_API_KEY:
             llm_score = await _groq_score(student_answer, concept_description)
@@ -637,7 +692,7 @@ async def compute_similarity_async(student_answer: str, concept_description: str
             llm_score = await _gemini_score(student_answer, concept_description)
         if llm_score is not None:
             final = max(local_score, llm_score)
-            logger.info(f"Example concept — local={local_score:.2f}, llm={llm_score:.2f}, final={final:.2f}")
+            logger.info(f"LLM-scored concept — local={local_score:.2f}, llm={llm_score:.2f}, final={final:.2f}")
             return float(np.clip(final, 0, 1))
 
     return local_score
@@ -929,6 +984,7 @@ async def create_question(
     assignment_id: str = Form(...),
     question_number: int = Form(...),
     marks: float = Form(...),
+    word_limit: Optional[int] = Form(None),
     current_faculty: dict = Depends(get_current_faculty)
 ):
     assignment = await db.assignments.find_one(
@@ -944,6 +1000,7 @@ async def create_question(
         "question_number": question_number,
         "question_text": question_text,
         "marks": marks,
+        "word_limit": word_limit,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
@@ -955,6 +1012,7 @@ async def update_question(
     question_id: str,
     question_text: str = Form(None),
     marks: float = Form(None),
+    word_limit: Optional[int] = Form(None),
     current_faculty: dict = Depends(get_current_faculty)
 ):
     question = await db.questions.find_one({"id": question_id})
@@ -972,6 +1030,9 @@ async def update_question(
         update_data["question_text"] = question_text
     if marks is not None:
         update_data["marks"] = marks
+    if word_limit is not None:
+        # Allow clearing word_limit by sending 0
+        update_data["word_limit"] = word_limit if word_limit > 0 else None
     
     if update_data:
         await db.questions.update_one(
@@ -1036,6 +1097,7 @@ async def upload_question_paper(
                 "question_number": q["number"],
                 "question_text": q["text"],
                 "marks": q["marks"],
+                "word_limit": None,
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             await db.questions.insert_one(question_data)
@@ -1730,6 +1792,22 @@ async def process_answer_script_and_update(
                 confidence_score    = (sum(cs["awarded_marks"] for cs in concept_scores)) / max_marks if max_marks > 0 else 0
                 needs_review        = confidence_score < 0.75
 
+                # ── Word Limit Penalty ──────────────────────────────────────
+                # Fetch the question's word_limit and apply graduated reduction
+                question_doc = await db.questions.find_one({"id": question_id}, {"_id": 0})
+                q_word_limit = question_doc.get("word_limit") if question_doc else None
+                answer_word_count = len(q_answer_text.split()) if q_answer_text else 0
+                word_limit_penalty_applied = False
+
+                if q_word_limit and q_word_limit > 0 and answer_word_count < q_word_limit:
+                    ratio = answer_word_count / q_word_limit
+                    if ratio < 0.90:
+                        # Apply penalty to all three mark totals
+                        total_marks_std     = _apply_word_limit_penalty(total_marks_std, max_marks, answer_word_count, q_word_limit)
+                        total_marks_sem_std = _apply_word_limit_penalty(total_marks_sem_std, max_marks, answer_word_count, q_word_limit)
+                        word_limit_penalty_applied = True
+                        logger.info(f"Word limit penalty: {answer_word_count}/{q_word_limit} words, ratio={ratio:.2f}")
+
                 evaluation_data = {
                     "id": str(uuid.uuid4()),
                     "student_answer_id": answer_id,
@@ -1747,6 +1825,9 @@ async def process_answer_script_and_update(
                     "reviewed": False,
                     "final_marks": None,
                     "faculty_comments": None,
+                    "word_count": answer_word_count,
+                    "word_limit": q_word_limit,
+                    "word_limit_penalty_applied": word_limit_penalty_applied,
                     "evaluated_at": datetime.now(timezone.utc).isoformat()
                 }
                 await db.evaluations.insert_one(evaluation_data)
@@ -2207,6 +2288,15 @@ async def _run_llm_assessment_background(assignment_id: str, total_evals: int):
                 ev_max = ev.get("max_marks", 0)
                 total_llm_std = min(standardise_marks(total_llm), ev_max)
 
+                # ── Word Limit Penalty (same as semantic+LLM path) ──
+                q_word_limit = ev.get("word_limit")
+                answer_word_count = ev.get("word_count", len(answer_text.split()) if answer_text else 0)
+                if q_word_limit and q_word_limit > 0 and answer_word_count < q_word_limit:
+                    ratio = answer_word_count / q_word_limit
+                    if ratio < 0.90:
+                        total_llm_std = _apply_word_limit_penalty(total_llm_std, ev_max, answer_word_count, q_word_limit)
+                        logger.info(f"LLM word limit penalty: {answer_word_count}/{q_word_limit} words")
+
                 # Save back to DB
                 await db.evaluations.update_one(
                     {"id": ev["id"]},
@@ -2550,17 +2640,25 @@ async def get_dashboard_analytics(
     )
     manual_review = len(review_students)
 
-    student_totals = {}
+    student_totals     = {}   # semantic totals
+    student_totals_llm = {}   # full-LLM totals (only populated if LLM marks exist)
     for ev in evaluations:
         sname = ev.get("student_name", "Unknown")
         total = ev.get("final_marks") if ev.get("reviewed") else ev.get("total_marks", 0)
         if total is None:
             total = ev.get("total_marks", 0)
+        total_llm = ev.get("total_marks_llm")
         max_m = ev.get("max_marks", 0)
         if sname not in student_totals:
             student_totals[sname] = {"total": 0, "max": 0}
         student_totals[sname]["total"] += total
         student_totals[sname]["max"] += max_m
+        # LLM totals — only aggregate if llm marks are available
+        if total_llm is not None:
+            if sname not in student_totals_llm:
+                student_totals_llm[sname] = {"total": 0, "max": 0}
+            student_totals_llm[sname]["total"] += min(total_llm, max_m)
+            student_totals_llm[sname]["max"] += max_m
 
     # ── Score distribution: bucket by ACTUAL marks, not percentage ──────────
     # Maximum marks for this assignment (from the assignment document)
@@ -2605,6 +2703,30 @@ async def get_dashboard_analytics(
         else:
             score_distribution["<60"] += 1
             mark_bands[band_keys[4]] += 1
+
+    # ── LLM score distribution (only if full-LLM marks are available) ────────
+    llm_has_data = len(student_totals_llm) > 0
+    mark_bands_llm = {k: 0 for k in band_keys} if llm_has_data else None
+    score_distribution_llm = {"90-100": 0, "80-90": 0, "70-80": 0, "60-70": 0, "<60": 0} if llm_has_data else None
+
+    if llm_has_data:
+        for sname, data in student_totals_llm.items():
+            pct = (data["total"] / data["max"] * 100) if data["max"] > 0 else 0
+            if pct >= 90:
+                score_distribution_llm["90-100"] += 1
+                mark_bands_llm[band_keys[0]] += 1
+            elif pct >= 80:
+                score_distribution_llm["80-90"] += 1
+                mark_bands_llm[band_keys[1]] += 1
+            elif pct >= 70:
+                score_distribution_llm["70-80"] += 1
+                mark_bands_llm[band_keys[2]] += 1
+            elif pct >= 60:
+                score_distribution_llm["60-70"] += 1
+                mark_bands_llm[band_keys[3]] += 1
+            else:
+                score_distribution_llm["<60"] += 1
+                mark_bands_llm[band_keys[4]] += 1
 
     questions = await db.questions.find(
         {"assignment_id": assignment_id}, {"_id": 0}
@@ -2685,6 +2807,62 @@ async def get_dashboard_analytics(
         all_pcts = [round(d["total"] / d["max"] * 100, 1) for d in student_totals.values() if d["max"] > 0]
         overall_avg = round(sum(all_pcts) / len(all_pcts), 1) if all_pcts else None
 
+    # ── LLM-based insights (mirrors semantic logic but uses awarded_marks_llm) ─
+    lowest_q_llm    = None
+    struggled_pct_llm = None
+    overall_avg_llm = None
+
+    if llm_has_data:
+        # Per-question LLM stats
+        q_stats_llm = {qid: {"question_number": v["question_number"],
+                              "question_text": v["question_text"],
+                              "max_marks": v["max_marks"],
+                              "total_awarded": 0, "count": 0}
+                       for qid, v in question_stats.items()}
+
+        for ev in evaluations:
+            qid = ev.get("question_id")
+            if qid not in q_stats_llm:
+                continue
+            llm_sum = sum(cs.get("awarded_marks_llm") or cs.get("awarded_marks", 0)
+                          for cs in ev.get("concept_scores", []))
+            q_stats_llm[qid]["total_awarded"] += min(llm_sum, q_stats_llm[qid]["max_marks"])
+            q_stats_llm[qid]["count"] += 1
+
+        qp_llm = []
+        for qid, qs in q_stats_llm.items():
+            avg_l = round(qs["total_awarded"] / qs["count"], 1) if qs["count"] > 0 else None
+            if avg_l is not None and qs["max_marks"] > 0:
+                ratio = avg_l / qs["max_marks"]
+                diff  = "Easy" if ratio >= 0.75 else ("Medium" if ratio >= 0.55 else "Hard")
+            else:
+                diff = "N/A"
+            qp_llm.append({"question_number": qs["question_number"],
+                            "question_text": qs["question_text"],
+                            "avg_score": avg_l, "max_marks": qs["max_marks"], "difficulty": diff})
+
+        scored_llm = [q for q in qp_llm if q["avg_score"] is not None]
+        if scored_llm:
+            lowest_q_llm = min(scored_llm,
+                               key=lambda x: x["avg_score"] / x["max_marks"] if x["max_marks"] else 1)
+
+        if lowest_q_llm and ai_evaluated > 0:
+            below = 0
+            for ev in evaluations:
+                qid = ev.get("question_id")
+                if not qid or q_stats_llm.get(qid, {}).get("question_number") != lowest_q_llm["question_number"]:
+                    continue
+                llm_sum = sum(cs.get("awarded_marks_llm") or cs.get("awarded_marks", 0)
+                              for cs in ev.get("concept_scores", []))
+                if llm_sum < (q_stats_llm[qid]["max_marks"] * 0.5):
+                    below += 1
+            struggled_pct_llm = round(below / ai_evaluated * 100)
+
+        if student_totals_llm:
+            llm_pcts = [round(d["total"] / d["max"] * 100, 1)
+                        for d in student_totals_llm.values() if d["max"] > 0]
+            overall_avg_llm = round(sum(llm_pcts) / len(llm_pcts), 1) if llm_pcts else None
+
     return {
         "assignment_name": assignment.get("assignment_name"),
         "maximum_marks": max_marks_assignment,
@@ -2694,15 +2872,23 @@ async def get_dashboard_analytics(
             "manual_review": manual_review,
             "percent_evaluated": round(ai_evaluated / scripts_uploaded * 100) if scripts_uploaded > 0 else 0
         },
-        "score_distribution": score_distribution,      # percentage-based (90-100 etc.)
-        "mark_bands": mark_bands,                      # actual mark ranges based on max_marks
+        "score_distribution": score_distribution,
+        "mark_bands": mark_bands,
+        "score_distribution_llm": score_distribution_llm,
+        "mark_bands_llm": mark_bands_llm,
         "question_performance": question_performance,
         "top_students": top_students,
         "overall_avg": overall_avg,
         "ai_insights": {
             "lowest_question": lowest_q,
-            "struggled_percent": struggled_pct
-        }
+            "struggled_percent": struggled_pct,
+            "overall_avg": overall_avg,
+        },
+        "ai_insights_llm": {
+            "lowest_question": lowest_q_llm,
+            "struggled_percent": struggled_pct_llm,
+            "overall_avg": overall_avg_llm,
+        } if llm_has_data else None
     }
 
 # Include API router

@@ -89,18 +89,18 @@ export default function RubricManagement() {
     const concepts = rubrics[questionId]?.concepts || [];
 
     if (concepts.length === 0) {
-      alert("⚠️ Please add at least one concept before saving.");
+      alert("Please add at least one concept before saving.");
       return;
     }
 
     // Validate concepts
     for (let i = 0; i < concepts.length; i++) {
       if (!concepts[i].description || concepts[i].description.trim().length < 5) {
-        alert(`⚠️ Concept ${i + 1}: Description must be at least 5 characters.`);
+        alert(`Concept ${i + 1}: Description must be at least 5 characters.`);
         return;
       }
       if (!concepts[i].marks || concepts[i].marks <= 0) {
-        alert(`⚠️ Concept ${i + 1}: Marks must be greater than 0.`);
+        alert(`Concept ${i + 1}: Marks must be greater than 0.`);
         return;
       }
     }
@@ -115,7 +115,7 @@ export default function RubricManagement() {
       if (rubrics[questionId]?.id) {
         // Update existing rubric
         await API.put(`/rubrics/${rubrics[questionId].id}`, rubricData);
-        alert("✅ Rubric updated successfully!");
+        alert("Rubric updated successfully!");
       } else {
         // Create new rubric
         const res = await API.post("/rubrics", rubricData);
@@ -126,12 +126,12 @@ export default function RubricManagement() {
             concepts: res.data.concepts
           }
         });
-        alert("✅ Rubric saved successfully!");
+        alert("Rubric saved successfully!");
       }
 
       setEditMode({ ...editMode, [questionId]: false });
     } catch (err) {
-      alert("❌ Error saving rubric: " + (err.response?.data?.detail || err.message));
+      alert("Error saving rubric: " + (err.response?.data?.detail || err.message));
     } finally {
       setSaving(false);
     }
@@ -167,10 +167,10 @@ export default function RubricManagement() {
     setSaving(false);
 
     if (errorCount === 0) {
-      alert(`✅ All rubrics saved successfully! (${successCount} rubrics)`);
+      alert(`All rubrics saved successfully! (${successCount} rubrics)`);
       navigate(`/assignment/${assignmentId}/upload-answers`);
     } else {
-      alert(`⚠️ Saved ${successCount} rubrics, ${errorCount} failed. Please check and try again.`);
+      alert(`Saved ${successCount} rubrics, ${errorCount} failed. Please check and try again.`);
     }
   };
 
@@ -189,7 +189,7 @@ export default function RubricManagement() {
       // Reload rubrics from DB to show the newly populated data
       await fetchData();
     } catch (err) {
-      alert("❌ Error uploading rubric PDF: " + (err.response?.data?.detail || err.message));
+      alert("Error uploading rubric PDF: " + (err.response?.data?.detail || err.message));
     } finally {
       setUploadingPdf(false);
       if (rubricPdfRef.current) rubricPdfRef.current.value = "";
@@ -236,7 +236,7 @@ export default function RubricManagement() {
         }}>
           <div>
             <p style={{ margin: 0, fontWeight: 700, color: 'var(--accent-color)', fontSize: '0.95rem' }}>
-              📄 Have a rubric PDF? Upload it to auto-fill all concepts instantly.
+              Have a rubric PDF? Upload it to auto-fill all concepts instantly.
             </p>
             <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
               Each question's concepts + marks will be parsed automatically.
@@ -259,7 +259,7 @@ export default function RubricManagement() {
           <div style={{ marginBottom: '24px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-light)' }}>
             <div style={{ background: '#dcfce7', padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, color: '#15803d', fontSize: '0.92rem' }}>
-                ✓ {pdfResult.message}
+                {pdfResult.message}
               </span>
               <button onClick={() => setPdfResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d' }}>
                 <X size={16} />
@@ -278,7 +278,7 @@ export default function RubricManagement() {
               <div style={{ padding: '8px 18px', background: '#fef9c3', borderTop: '1px solid #fde68a' }}>
                 {pdfResult.skipped.map((s, i) => (
                   <div key={i} style={{ fontSize: '0.82rem', color: '#92400e' }}>
-                    ⚠ Q{s.question_number}: {s.reason}
+                    Q{s.question_number}: {s.reason}
                   </div>
                 ))}
               </div>
@@ -286,11 +286,6 @@ export default function RubricManagement() {
           </div>
         )}
 
-        <div style={{ marginBottom: '32px', background: 'var(--bg-tertiary)', padding: '16px', borderRadius: '8px', borderLeft: '4px solid var(--info)' }}>
-          <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-            <strong>Pro Tip:</strong> Break down the answer into specific, measurable concepts. The more precise the rubric, the more accurate the evaluation will be.
-          </p>
-        </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {questions.map((q) => (

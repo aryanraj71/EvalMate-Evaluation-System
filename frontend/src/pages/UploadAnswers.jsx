@@ -248,19 +248,7 @@ export default function UploadAnswers() {
           {/* ── SINGLE TAB ── */}
           {activeTab === "single" && (
             <>
-              <div style={{
-                background: "var(--info-bg)", padding: 20, borderRadius: 12, marginBottom: 24,
-                border: "1px solid rgba(59,130,246,0.2)"
-              }}>
-                <h3 style={{ fontSize: "1.05rem", fontWeight: 600, color: "var(--info)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Clock size={18} /> Queue System — No Waiting!
-                </h3>
-                <ul style={{ fontSize: "0.9rem", color: "var(--text-primary)", lineHeight: 1.6, margin: "8px 0 0 20px", padding: 0 }}>
-                  <li style={{ marginBottom: 4 }}>Fill form → click <strong>Add to Queue</strong> → form resets instantly</li>
-                  <li style={{ marginBottom: 4 }}>Queue processes uploads one-by-one automatically</li>
-                  <li>Navigate away anytime — processing continues in background</li>
-                </ul>
-              </div>
+
 
               <form onSubmit={handleAddToQueue}>
                 <div className="form-group">
@@ -306,7 +294,10 @@ export default function UploadAnswers() {
                     <Plus size={18} /> Add to Queue
                   </button>
                   <button
-                    type="button" onClick={() => navigate(`/assignment/${assignmentId}/results`)}
+                    type="button" onClick={() => {
+                      sessionStorage.setItem("evalmate_results_assignment", assignmentId);
+                      navigate("/results");
+                    }}
                     className="btn btn-secondary" style={{ flex: 1, padding: 12 }}
                   >
                     View Results {doneCount > 0 && <span className="badge badge-success" style={{ marginLeft: 8 }}>{doneCount}</span>}
@@ -364,7 +355,7 @@ export default function UploadAnswers() {
               {bulkParseErrors.length > 0 && (
                 <div style={{ background: "var(--danger-bg)", border: "1px solid #fca5a5", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
                   <p style={{ fontWeight: 700, color: "var(--danger)", margin: "0 0 8px", fontSize: "0.9rem" }}>
-                    ⚠ {bulkParseErrors.length} file(s) could not be parsed:
+                    {bulkParseErrors.length} file(s) could not be parsed:
                   </p>
                   {bulkParseErrors.map((e, i) => (
                     <p key={i} style={{ margin: "2px 0", fontSize: "0.82rem", color: "var(--danger-text)" }}>
@@ -433,20 +424,7 @@ export default function UploadAnswers() {
             </>
           )}
 
-          {/* Pro tips — shown on both tabs */}
-          <div style={{
-            background: "var(--bg-tertiary)", padding: 20, borderRadius: 12, marginTop: 32,
-            borderTop: "1px solid var(--border-light)"
-          }}>
-            <h3 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: 12, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
-              <AlertCircle size={18} color="var(--accent-color)" /> Pro Tips
-            </h3>
-            <ul style={{ fontSize: "0.9rem", color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 0 20px", padding: 0 }}>
-              <li style={{ marginBottom: 4 }}>Evaluations appear in Results page as they complete</li>
-              <li style={{ marginBottom: 4 }}>Low confidence evaluations are flagged for manual review</li>
-              <li>You can leave this page — processing continues in background</li>
-            </ul>
-          </div>
+
         </div>
 
         {/* ── RIGHT: Queue Status Panel ── */}
@@ -454,10 +432,10 @@ export default function UploadAnswers() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
             <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 600 }}>Upload Status</h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {uploadingCount > 0 && <span className="badge badge-primary">↑ {uploadingCount} Uploading</span>}
-              {queuedCount   > 0 && <span className="badge" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>⏳ {queuedCount} Waiting</span>}
-              {doneCount     > 0 && <span className="badge badge-success">✓ {doneCount} Done</span>}
-              {errorCount    > 0 && <span className="badge badge-danger">✗ {errorCount} Failed</span>}
+              {uploadingCount > 0 && <span className="badge badge-primary">{uploadingCount} Uploading</span>}
+              {queuedCount   > 0 && <span className="badge" style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)" }}>{queuedCount} Waiting</span>}
+              {doneCount     > 0 && <span className="badge badge-success">{doneCount} Done</span>}
+              {errorCount    > 0 && <span className="badge badge-danger">{errorCount} Failed</span>}
             </div>
           </div>
 
@@ -495,7 +473,7 @@ export default function UploadAnswers() {
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.student_name}</span>
                     </div>
                     <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: 3 }}>SAP / Roll: {item.roll_number}</div>
-                    {item.error && <div style={{ fontSize: "0.82rem", color: "var(--danger)", marginTop: 3, fontWeight: 500 }}>✗ {item.error}</div>}
+                    {item.error && <div style={{ fontSize: "0.82rem", color: "var(--danger)", marginTop: 3, fontWeight: 500 }}>{item.error}</div>}
                   </div>
 
                   <span style={{
@@ -510,7 +488,7 @@ export default function UploadAnswers() {
                       : "var(--text-secondary)",
                   }}>
                     {item.status === "uploading" ? "Uploading…"
-                      : item.status === "done"   ? "Uploaded ✓"
+                      : item.status === "done"   ? "Uploaded"
                       : item.status === "error"  ? "Failed"
                       : "In Queue"}
                   </span>
@@ -539,14 +517,17 @@ export default function UploadAnswers() {
           {queue.length > 0 && (
             <div style={{ marginTop: 20, paddingTop: 14, borderTop: "1px solid var(--border-light)", fontSize: "0.88rem", color: "var(--text-secondary)", textAlign: "center", fontWeight: 500 }}>
               {(uploadingCount > 0 || queuedCount > 0)
-                ? "⚡ Processing in background — navigate away anytime"
-                : "✅ All uploads complete! Evaluation running in background."}
+                ? "Processing in background — navigate away anytime"
+                : "All uploads complete! Evaluation running in background."}
             </div>
           )}
 
           {doneCount > 0 && queuedCount === 0 && uploadingCount === 0 && (
             <button
-              onClick={() => navigate(`/assignment/${assignmentId}/results`)}
+              onClick={() => {
+                sessionStorage.setItem("evalmate_results_assignment", assignmentId);
+                navigate("/results");
+              }}
               className="btn btn-primary"
               style={{ width: "100%", marginTop: 16 }}
             >

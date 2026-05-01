@@ -48,7 +48,7 @@ function DeleteConfirmModal({ student, onConfirm, onCancel, deleting }) {
 
         <div style={{ background: "var(--danger-bg)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
           <p style={{ margin: 0, color: "var(--danger-text)", fontSize: "0.92rem", fontWeight: 500 }}>
-            ⚠ This will permanently delete all uploaded scripts, answers and evaluations for:
+            This will permanently delete all uploaded scripts, answers and evaluations for:
           </p>
           <p style={{ margin: "8px 0 0", fontWeight: 700, color: "var(--danger)", fontSize: "1rem" }}>
             {student.student_name} &nbsp;·&nbsp; Roll: {student.roll_number}
@@ -92,6 +92,8 @@ export default function Results() {
   // Delete state
   const [deleteTarget, setDeleteTarget]         = useState(null);
   const [deleting, setDeleting]                 = useState(false);
+  const [selectedStudents, setSelectedStudents] = useState([]); // Array of roll_numbers
+  const [bulkDeleting, setBulkDeleting]         = useState(false);
 
   // ── Dual scoring mode ──────────────────────────────────────────────────
   // "semantic" = current model (similarity + LLM for examples only)
@@ -184,6 +186,48 @@ export default function Results() {
       setLoadingResults(false);
       setRefreshing(false);
     }
+  };
+
+  const getFilteredStudents = () => {
+    const q = searchQuery.toLowerCase();
+    return allStudents.filter(s =>
+      s.student_name.toLowerCase().includes(q) ||
+      (s.roll_number && s.roll_number.toLowerCase().includes(q))
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedStudents.length) return;
+    if (!window.confirm(`Are you sure you want to delete records for ${selectedStudents.length} selected students? This cannot be undone.`)) return;
+
+    setBulkDeleting(true);
+    try {
+      await Promise.all(selectedStudents.map(roll =>
+        API.delete(`/student-records/${selectedId}/${roll}`)
+      ));
+      setSelectedStudents([]);
+      fetchResults(selectedId);
+    } catch (err) {
+      console.error("Bulk delete error:", err);
+      alert("Some records could not be deleted.");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleAll = () => {
+    const filtered = getFilteredStudents();
+    if (selectedStudents.length === filtered.length && filtered.length > 0) {
+      setSelectedStudents([]);
+    } else {
+      setSelectedStudents(filtered.map(s => s.roll_number));
+    }
+  };
+
+  const toggleOne = (roll) => {
+    setSelectedStudents(prev =>
+      prev.includes(roll) ? prev.filter(r => r !== roll) : [...prev, roll]
+    );
   };
 
   // Trigger on-demand LLM assessment (skips if already computed in DB)
@@ -294,13 +338,13 @@ export default function Results() {
     : null;
 
 
-  // ── Full LLM confirmation modal ──────────────────────────────────────────
+  // ── LLM confirmation modal ──────────────────────────────────────────
   const LlmConfirmModal = () => (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ background: "white", borderRadius: 16, padding: 32, maxWidth: 460, width: "100%", boxShadow: "0 25px 50px rgba(0,0,0,0.2)", animation: "fadeUp 0.2s ease" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <div style={{ padding: 10, background: "#ede9fe", borderRadius: 10, color: "#7c3aed", flexShrink: 0 }}><Brain size={20} /></div>
-          <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>Run Full LLM Assessment?</h3>
+          <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>Run LLM Assessment?</h3>
         </div>
         <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
           <p style={{ margin: "0 0 8px", color: "#4c1d95", fontSize: "0.9rem", fontWeight: 600 }}>What this does:</p>
@@ -312,7 +356,7 @@ export default function Results() {
           </ul>
         </div>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", margin: "0 0 24px" }}>
-          You can switch back to Semantic + LLM mode anytime to compare results.
+          You can switch back to Semantic mode anytime to compare results.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
           <button onClick={() => setShowLlmConfirm(false)} className="btn btn-secondary">Cancel</button>
@@ -324,7 +368,7 @@ export default function Results() {
             }}
             style={{ padding: "9px 20px", background: "#7c3aed", color: "white", border: "none", borderRadius: 8, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: "0.9rem" }}
           >
-            <Brain size={15} /> Yes, Run Full LLM
+            <Brain size={15} /> Yes, Run LLM
           </button>
         </div>
       </div>
@@ -404,7 +448,7 @@ export default function Results() {
       {/* No selection */}
       {!selectedId && (
         <div style={{ background: "linear-gradient(135deg,#eef2ff,#f5f3ff)", border: "1px dashed var(--accent-color)", borderRadius: 14, padding: 32, textAlign: "center" }}>
-          <div style={{ fontSize: "3rem", marginBottom: 12 }}>📊</div>
+          <div style={{ marginBottom: 12, color: "var(--accent-color)" }}><BarChart2 size={48} /></div>
           <h3 style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>No assignment selected</h3>
           <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Choose an assignment from the dropdown above to view student results and scores.</p>
         </div>
@@ -479,10 +523,10 @@ export default function Results() {
               {/* Buttons */}
               <div style={{ display: "flex", background: "white", borderRadius: 10, padding: 3, gap: 3, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
                 <button
-                  onClick={() => setScoringMode("combined")}
-                  style={{ padding: "7px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "combined" ? "var(--accent-color)" : "transparent", color: scoringMode === "combined" ? "white" : "var(--text-secondary)", boxShadow: scoringMode === "combined" ? "0 2px 6px rgba(99,102,241,0.3)" : "none" }}
+                  onClick={() => setScoringMode("semantic")}
+                  style={{ padding: "7px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "semantic" ? "var(--accent-color)" : "transparent", color: scoringMode === "semantic" ? "white" : "var(--text-secondary)", boxShadow: scoringMode === "semantic" ? "0 2px 6px rgba(99,102,241,0.3)" : "none" }}
                 >
-                  <Cpu size={13} /> Semantic + LLM
+                  <Cpu size={13} /> Semantic
                 </button>
                 <button
                   onClick={() => {
@@ -492,12 +536,12 @@ export default function Results() {
                   }}
                   style={{ padding: "7px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "llm" ? "#7c3aed" : "transparent", color: scoringMode === "llm" ? "white" : "var(--text-secondary)", boxShadow: scoringMode === "llm" ? "0 2px 6px rgba(124,58,237,0.3)" : "none" }}
                 >
-                  <Brain size={13} /> {llmReady && scoringMode !== "llm" ? "Full LLM ✓" : "Full LLM"}
+                  <Brain size={13} /> {llmReady && scoringMode !== "llm" ? "LLM ✓" : "LLM"}
                 </button>
               </div>
 
               {/* Status indicator — next to buttons */}
-              {scoringMode === "combined" && (
+              {scoringMode === "semantic" && (
                 <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontStyle: "italic" }}>
                   Semantic similarity for definitions, LLM only for examples.
                 </span>
@@ -508,20 +552,49 @@ export default function Results() {
                   {llmStatus?.status === "running" ? (
                     <><Loader size={13} style={{ animation: "spin 1s linear infinite" }} /> AI evaluating… {llmStatus.progress}/{llmStatus.total} done</>
                   ) : llmStatus?.status === "done" ? (
-                    <>✓ Full LLM marks ready</>
+                    <>LLM marks ready</>
                   ) : triggeringLlm ? (
                     <><Loader size={13} style={{ animation: "spin 1s linear infinite" }} /> Starting…</>
                   ) : (
-                    <>⏳ LLM evaluation queued</>
+                    <>LLM evaluation queued</>
                   )}
                 </span>
               )}
             </div>
+            
+            {/* Bulk Actions Bar (Visible when something is selected) */}
+            {selectedStudents.length > 0 && (
+                <div style={{
+                  marginBottom: 16, padding: "10px 16px", background: "#fee2e2",
+                  borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between",
+                  border: "1px solid #fecdd3"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#991b1b" }}>
+                      {selectedStudents.length} student{selectedStudents.length !== 1 ? "s" : ""} selected
+                    </span>
+                    <button
+                      onClick={() => setSelectedStudents([])}
+                      style={{ background: "transparent", border: "none", color: "#b91c1c", fontSize: "0.8rem", cursor: "pointer", textDecoration: "underline" }}
+                    >
+                      Clear Selection
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleBulkDelete}
+                    disabled={bulkDeleting}
+                    style={{ background: "#b91c1c", color: "white", padding: "6px 14px", fontSize: "0.82rem", gap: 6, display: "flex", alignItems: "center", border: "none", borderRadius: 8, cursor: bulkDeleting ? "not-allowed" : "pointer" }}
+                  >
+                    {bulkDeleting ? <Loader size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Trash2 size={13} />}
+                    Delete Selected
+                  </button>
+                </div>
+            )}
 
           {/* Table */}
             {allStudents.length === 0 ? (
               <div style={{ textAlign: "center", padding: 48, color: "var(--text-tertiary)" }}>
-                <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>📋</div>
+                <div style={{ marginBottom: 12, color: "var(--text-tertiary)" }}><FileText size={40} /></div>
                 <p style={{ fontWeight: 600 }}>No scripts uploaded yet for this assignment.</p>
                 <button onClick={() => navigate(`/assignment/${selectedId}/upload-answers`)} className="btn btn-primary" style={{ marginTop: 16 }}>
                   Upload Answer Scripts
@@ -532,6 +605,14 @@ export default function Results() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
                   <thead>
                     <tr style={{ background: "var(--bg-secondary)" }}>
+                      <th style={{ width: 40, padding: "11px 16px" }}>
+                        <input
+                          type="checkbox"
+                          checked={filtered.length > 0 && selectedStudents.length === filtered.length}
+                          onChange={toggleAll}
+                          style={{ cursor: "pointer", transform: "scale(1.1)" }}
+                        />
+                      </th>
                       {["#", "Student Name", "SAP / Roll No.", "Score", "Status", "Actions"].map(h => (
                         <th key={h} style={{ padding: "11px 16px", textAlign: "left", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                       ))}
@@ -539,10 +620,19 @@ export default function Results() {
                   </thead>
                   <tbody>
                     {filtered.map((s, i) => (
-                      <tr key={i} style={{ borderTop: "1px solid var(--border-light)", transition: "background 0.12s" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "rgba(243,244,246,0.5)"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                      <tr key={i} style={{ borderTop: "1px solid var(--border-light)", transition: "background 0.12s", background: selectedStudents.includes(s.roll_number) ? "#fff1f2" : "transparent" }}
+                        onMouseEnter={e => { if (!selectedStudents.includes(s.roll_number)) e.currentTarget.style.background = "rgba(243,244,246,0.5)"; }}
+                        onMouseLeave={e => { if (!selectedStudents.includes(s.roll_number)) e.currentTarget.style.background = "transparent"; }}
                       >
+                        <td style={{ padding: "12px 16px" }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedStudents.includes(s.roll_number)}
+                            onChange={() => toggleOne(s.roll_number)}
+                            onClick={e => e.stopPropagation()}
+                            style={{ cursor: "pointer", transform: "scale(1.1)" }}
+                          />
+                        </td>
                         <td style={{ padding: "12px 16px", color: "var(--text-tertiary)", fontWeight: 600 }}>{i + 1}</td>
                         <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>{s.student_name}</td>
                         <td style={{ padding: "12px 16px", color: "var(--text-secondary)", fontFamily: "monospace", fontSize: "0.85rem" }}>{s.roll_number || "—"}</td>
@@ -553,15 +643,21 @@ export default function Results() {
                         />
                         </td>
                         <td style={{ padding: "12px 16px" }}>
-                          {s.status === "evaluated" && (
-                            <span style={{ background: "#dcfce7", color: "#15803d", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>✓ Evaluated</span>
-                          )}
-                          {s.status === "review" && (
-                            <span style={{ background: "#fef9c3", color: "#92400e", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>⚠ Needs Review</span>
-                          )}
-                          {s.status === "pending" && (
-                            <span style={{ background: "#f1f5f9", color: "#64748b", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>⏳ Pending</span>
-                          )}
+                          {(() => {
+                            if (s.status === "pending") {
+                              return <span style={{ background: "#f1f5f9", color: "#64748b", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>Pending</span>;
+                            }
+                            // Calculate dynamic status based on current mode's score
+                            const score = scoringMode === "llm" ? s.total_marks_llm : s.total_marks;
+                            const pct = s.max_marks > 0 ? (score / s.max_marks) : 0;
+                            const isLow = pct < 0.75;
+
+                            if (isLow && !s.reviewed) {
+                              return <span style={{ background: "#fef9c3", color: "#92400e", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>Needs Review</span>;
+                            } else {
+                              return <span style={{ background: "#dcfce7", color: "#15803d", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>Evaluated</span>;
+                            }
+                          })()}
                         </td>
                         <td style={{ padding: "12px 16px" }}>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -570,20 +666,6 @@ export default function Results() {
                               style={{ padding: "5px 12px", background: scoringMode === "llm" ? "#ede9fe" : "var(--accent-light)", color: scoringMode === "llm" ? "#7c3aed" : "var(--accent-color)", border: "none", borderRadius: 7, cursor: "pointer", fontWeight: 600, fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 5 }}
                             >
                               <Eye size={13} /> Detail
-                            </button>
-                            <button
-                              onClick={() => setDeleteTarget(s)}
-                              title="Delete student records"
-                              style={{
-                                padding: "5px 8px", background: "transparent", color: "var(--text-tertiary)",
-                                border: "1px solid var(--border-light)", borderRadius: 7, cursor: "pointer",
-                                display: "flex", alignItems: "center", gap: 4,
-                                transition: "all 0.15s", fontSize: "0.8rem"
-                              }}
-                              onMouseEnter={e => { e.currentTarget.style.background = "var(--danger-bg)"; e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.borderColor = "#fca5a5"; }}
-                              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-tertiary)"; e.currentTarget.style.borderColor = "var(--border-light)"; }}
-                            >
-                              <Trash2 size={13} />
                             </button>
                           </div>
                         </td>

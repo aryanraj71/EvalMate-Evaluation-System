@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Home, PlusSquare, BookOpen, Settings, FolderOpen, BarChart2 } from 'lucide-react';
 import './Sidebar.css';
+import Logo from './Logo';
 
 const Sidebar = () => {
   const location = useLocation();
@@ -16,10 +17,7 @@ const Sidebar = () => {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="logo-container">
-          <BookOpen className="logo-icon" size={28} />
-          <span className="logo-text">EvalMate</span>
-        </div>
+        <Logo size="medium" />
       </div>
 
       <nav className="sidebar-nav">

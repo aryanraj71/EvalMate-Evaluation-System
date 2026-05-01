@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import API from "../services/api";
-import { ArrowLeft, Plus, Upload, Trash2, Edit2, Save, X, FileQuestion, UploadCloud } from "lucide-react";
+import { ArrowLeft, Plus, Upload, Trash2, Edit2, Save, X, FileQuestion, UploadCloud, Type, Check } from "lucide-react";
 
 export default function QuestionManagement() {
   const { assignmentId } = useParams();
@@ -14,7 +14,8 @@ export default function QuestionManagement() {
   const [manualQuestion, setManualQuestion] = useState({
     question_text: "",
     question_number: 1,
-    marks: ""
+    marks: "",
+    word_limit: ""
   });
 
   useEffect(() => {
@@ -43,10 +44,13 @@ export default function QuestionManagement() {
       formData.append("question_text", manualQuestion.question_text);
       formData.append("question_number", manualQuestion.question_number);
       formData.append("marks", parseFloat(manualQuestion.marks));
+      if (manualQuestion.word_limit && parseInt(manualQuestion.word_limit) > 0) {
+        formData.append("word_limit", parseInt(manualQuestion.word_limit));
+      }
 
       await API.post("/questions", formData);
       alert("✅ Question added successfully!");
-      setManualQuestion({ question_text: "", question_number: questions.length + 2, marks: "" });
+      setManualQuestion({ question_text: "", question_number: questions.length + 2, marks: "", word_limit: "" });
       setShowManualForm(false);
       fetchQuestions();
     } catch (err) {
@@ -79,7 +83,8 @@ export default function QuestionManagement() {
     setEditingQuestion({
       id: question.id,
       question_text: question.question_text,
-      marks: question.marks
+      marks: question.marks,
+      word_limit: question.word_limit || ""
     });
   };
 
@@ -92,6 +97,9 @@ export default function QuestionManagement() {
       const formData = new FormData();
       formData.append("question_text", editingQuestion.question_text);
       formData.append("marks", parseFloat(editingQuestion.marks));
+      // Send 0 to clear word_limit, or the actual value
+      const wl = editingQuestion.word_limit ? parseInt(editingQuestion.word_limit) : 0;
+      formData.append("word_limit", wl);
 
       await API.put(`/questions/${questionId}`, formData);
       alert("✅ Question updated successfully!");
@@ -155,7 +163,7 @@ export default function QuestionManagement() {
           <div style={{ background: 'var(--bg-tertiary)', padding: '24px', borderRadius: '12px', marginBottom: '32px', border: '1px solid var(--border-light)' }}>
             <h3 style={{ marginBottom: '20px', fontSize: '1.1rem', fontWeight: '600', color: 'var(--text-primary)' }}>Add New Question</h3>
             <form onSubmit={handleAddManual}>
-              <div className="grid grid-2" style={{ gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                 <div className="form-group">
                   <label className="form-label">Question Number</label>
                   <input
@@ -177,6 +185,18 @@ export default function QuestionManagement() {
                     required
                     min="0.5"
                     step="0.5"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Word Limit <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, fontSize: '0.75rem' }}>(optional)</span></label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={manualQuestion.word_limit}
+                    onChange={(e) => setManualQuestion({ ...manualQuestion, word_limit: e.target.value })}
+                    placeholder="e.g. 50"
+                    min="0"
+                    step="1"
                   />
                 </div>
               </div>
@@ -246,16 +266,30 @@ export default function QuestionManagement() {
                         style={{ minHeight: '120px' }}
                       />
                     </div>
-                    <div className="form-group" style={{ marginBottom: 0, maxWidth: '200px' }}>
-                      <label className="form-label">Marks</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        value={editingQuestion.marks}
-                        onChange={(e) => setEditingQuestion({ ...editingQuestion, marks: e.target.value })}
-                        min="0.5"
-                        step="0.5"
-                      />
+                    <div style={{ display: 'flex', gap: '16px' }}>
+                      <div className="form-group" style={{ marginBottom: 0, maxWidth: '200px' }}>
+                        <label className="form-label">Marks</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={editingQuestion.marks}
+                          onChange={(e) => setEditingQuestion({ ...editingQuestion, marks: e.target.value })}
+                          min="0.5"
+                          step="0.5"
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0, maxWidth: '200px' }}>
+                        <label className="form-label">Word Limit <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, fontSize: '0.75rem' }}>(optional)</span></label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={editingQuestion.word_limit}
+                          onChange={(e) => setEditingQuestion({ ...editingQuestion, word_limit: e.target.value })}
+                          placeholder="e.g. 50"
+                          min="0"
+                          step="1"
+                        />
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -265,6 +299,9 @@ export default function QuestionManagement() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <span className="badge badge-primary" style={{ fontSize: '0.9rem', padding: '4px 10px' }}>Q{q.question_number}</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--success)' }}>{q.marks} Marks</span>
+                        {q.word_limit && (
+                          <span style={{ fontSize: '0.8rem', fontWeight: '500', color: 'var(--info)', background: 'var(--info-bg)', padding: '3px 10px', borderRadius: '8px' }}>~{q.word_limit} words</span>
+                        )}
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button
@@ -285,9 +322,41 @@ export default function QuestionManagement() {
                         </button>
                       </div>
                     </div>
-                    <p style={{ color: 'var(--text-primary)', lineHeight: '1.6', margin: '0', whiteSpace: 'pre-wrap', fontSize: '0.95rem' }}>
+                    <p style={{ color: 'var(--text-primary)', lineHeight: '1.6', margin: '0 0 10px 0', whiteSpace: 'pre-wrap', fontSize: '0.95rem' }}>
                       {q.question_text}
                     </p>
+                    {/* Inline Word Limit Setter */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', paddingTop: '10px', borderTop: '1px dashed var(--border-light)' }}>
+                      <Type size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>Word Limit:</span>
+                      <input
+                        type="number"
+                        className="form-input"
+                        defaultValue={q.word_limit || ''}
+                        placeholder="e.g. 50"
+                        min="0"
+                        step="1"
+                        style={{ width: '90px', height: '30px', padding: '4px 8px', fontSize: '0.8rem', borderRadius: '6px' }}
+                        id={`wl-${q.id}`}
+                      />
+                      <button
+                        onClick={async () => {
+                          const val = parseInt(document.getElementById(`wl-${q.id}`).value) || 0;
+                          try {
+                            const formData = new FormData();
+                            formData.append('word_limit', val);
+                            await API.put(`/questions/${q.id}`, formData);
+                            fetchQuestions();
+                          } catch (err) {
+                            alert('❌ Failed to update word limit');
+                          }
+                        }}
+                        style={{ background: 'none', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--accent-color)', fontWeight: 500, transition: 'all 0.15s' }}
+                        title="Save word limit"
+                      >
+                        <Check size={13} /> Set
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

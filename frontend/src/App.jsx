@@ -8,11 +8,11 @@ import AssignmentDetail from "./pages/AssignmentDetail";
 import QuestionManagement from "./pages/QuestionManagement";
 import RubricManagement from "./pages/RubricManagement";
 import UploadAnswers from "./pages/UploadAnswers";
-import EvaluationResults from "./pages/EvaluationResults";
 import ReviewAnswers from "./pages/ReviewAnswers";
 import Assignments from "./pages/Assignments";
 import Results from "./pages/Results";
 import Layout from "./components/Layout";
+import LandingPage from "./pages/LandingPage";
 
 // Auth Context
 export const AuthContext = createContext();
@@ -61,7 +61,7 @@ function App() {
     <AuthContext.Provider value={{ user, login, logout }}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Login />} />
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
           <Route path="/signup" element={user ? <Navigate to="/dashboard" /> : <Signup />} />
 
@@ -72,7 +72,6 @@ function App() {
           <Route path="/assignment/:assignmentId/questions" element={user ? <Layout><QuestionManagement /></Layout> : <Navigate to="/login" />} />
           <Route path="/assignment/:assignmentId/rubrics" element={user ? <Layout><RubricManagement /></Layout> : <Navigate to="/login" />} />
           <Route path="/assignment/:assignmentId/upload-answers" element={user ? <Layout><UploadAnswers /></Layout> : <Navigate to="/login" />} />
-          <Route path="/assignment/:assignmentId/results" element={user ? <Layout><EvaluationResults /></Layout> : <Navigate to="/login" />} />
           <Route path="/assignment/:assignmentId/review" element={user ? <Layout><ReviewAnswers /></Layout> : <Navigate to="/login" />} />
           <Route path="/assignments" element={user ? <Layout><Assignments /></Layout> : <Navigate to="/login" />} />
           <Route path="/results" element={user ? <Layout><Results /></Layout> : <Navigate to="/login" />} />

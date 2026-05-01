@@ -3,6 +3,9 @@ import { useNavigate, Link } from "react-router-dom";
 import { AuthContext } from "../App";
 import API from "../services/api";
 import { Mail, Lock, User, Briefcase, Building, Eye, EyeOff, ArrowRight, BookOpen, Check } from "lucide-react";
+import "./LandingPage.css";
+import AuthAnimation from "../components/AuthAnimation";
+import Logo from "../components/Logo";
 
 export default function Signup() {
   const [formData, setFormData] = useState({ name: "", email: "", password: "", faculty_id: "", department: "" });
@@ -30,9 +33,9 @@ export default function Signup() {
   };
 
   const fields = [
-    { label: "Full Name",      name: "name",        type: "text",     placeholder: "Dr. Jane Smith",          icon: <User size={16} /> },
-    { label: "Email Address",  name: "email",       type: "email",    placeholder: "faculty@university.edu",   icon: <Mail size={16} /> },
-    { label: "Faculty ID",     name: "faculty_id",  type: "text",     placeholder: "FAC-123",                  icon: <Briefcase size={16} /> },
+    { label: "Full Name",      name: "name",        type: "text",     placeholder: "Dr. XYZ",          icon: <User size={16} /> },
+    { label: "Email Address",  name: "email",       type: "email",    placeholder: "faculty@ddn.upes.ac.in",   icon: <Mail size={16} /> },
+    { label: "Faculty ID",     name: "faculty_id",  type: "text",     placeholder: "CSE-123",                  icon: <Briefcase size={16} /> },
     { label: "Department",     name: "department",  type: "text",     placeholder: "Computer Science",         icon: <Building size={16} /> },
   ];
 
@@ -53,7 +56,7 @@ export default function Signup() {
           min-height: 100vh;
           width: 100vw;
           font-family: 'DM Sans', sans-serif;
-          background: #0d0f14;
+          background: #f8fafc;
           overflow-x: hidden;
         }
 
@@ -69,23 +72,10 @@ export default function Signup() {
         }
         .signup-left-bg {
           position: absolute; inset: 0;
-          background: linear-gradient(160deg, #1a1d2e 0%, #0f1117 100%);
+          background: #f8fafc;
+          background-image: radial-gradient(circle at 15% 50%, rgba(124, 58, 237, 0.05), transparent 25%),
+                            radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.04), transparent 25%);
           z-index: 0;
-        }
-        .su-blob {
-          position: absolute; border-radius: 50%;
-          filter: blur(90px); z-index: 0;
-        }
-        .su-blob-1 { width: 380px; height: 380px; background: #4f46e5; opacity: 0.22; top: -80px; left: -80px; }
-        .su-blob-2 { width: 280px; height: 280px; background: #7c3aed; opacity: 0.18; bottom: 40px; right: -60px; }
-        .su-blob-3 { width: 180px; height: 180px; background: #06b6d4; opacity: 0.12; top: 50%; left: 50%; }
-        .signup-grid {
-          position: absolute; inset: 0;
-          background-image:
-            linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-          background-size: 48px 48px;
-          z-index: 1;
         }
         .signup-left-inner {
           position: relative; z-index: 2;
@@ -107,7 +97,7 @@ export default function Signup() {
         .su-brand-name {
           font-family: 'Sora', sans-serif;
           font-size: 1.3rem; font-weight: 700;
-          color: white; letter-spacing: -0.02em;
+          color: #0f172a; letter-spacing: -0.02em;
         }
 
         .su-hero {
@@ -118,22 +108,13 @@ export default function Signup() {
         }
         .su-step-tag {
           display: inline-flex; align-items: center; gap: 7px;
-          background: rgba(16,185,129,0.15);
-          border: 1px solid rgba(16,185,129,0.3);
-          color: #6ee7b7;
+          background: rgba(124, 58, 237, 0.1);
+          border: 1px solid rgba(124, 58, 237, 0.2);
+          color: #c4b5fd;
           font-size: 0.72rem; font-weight: 600;
           letter-spacing: 0.08em; text-transform: uppercase;
-          padding: 5px 12px; border-radius: 99px;
+          padding: 6px 14px; border-radius: 99px;
           margin-bottom: 22px; width: fit-content;
-        }
-        .su-step-dot {
-          width: 6px; height: 6px;
-          background: #10b981; border-radius: 50%;
-          animation: su-pulse 2s infinite;
-        }
-        @keyframes su-pulse {
-          0%,100% { opacity:1; transform:scale(1); }
-          50% { opacity:0.5; transform:scale(0.8); }
         }
 
         .su-title {
@@ -141,18 +122,18 @@ export default function Signup() {
           font-size: clamp(1.8rem, 3vw, 2.5rem);
           font-weight: 800;
           line-height: 1.18;
-          color: white;
+          color: #0f172a;
           margin-bottom: 16px;
           letter-spacing: -0.03em;
         }
         .su-title span {
-          background: linear-gradient(90deg, #6ee7b7, #34d399);
+          background: linear-gradient(90deg, #7c3aed, #9333ea);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
         }
         .su-sub {
-          color: rgba(255,255,255,0.45);
+          color: #475569;
           font-size: 0.9rem; line-height: 1.65;
           max-width: 380px; margin-bottom: 32px;
         }
@@ -165,19 +146,18 @@ export default function Signup() {
         }
         .feature-check {
           width: 24px; height: 24px; flex-shrink: 0;
-          background: rgba(16,185,129,0.2);
-          border: 1px solid rgba(16,185,129,0.35);
-          border-radius: 50%;
+          background: rgba(124, 58, 237, 0.1);
+          border-radius: 8px;
           display: flex; align-items: center; justify-content: center;
-          color: #34d399;
+          color: #a78bfa;
         }
         .feature-text {
-          font-size: 0.88rem; color: rgba(255,255,255,0.7); font-weight: 500;
+          font-size: 0.88rem; color: #334155; font-weight: 500;
         }
 
         .su-footer {
           font-size: 0.75rem;
-          color: rgba(255,255,255,0.22);
+          color: #94a3b8;
         }
 
         /* ── RIGHT PANEL ── */
@@ -257,14 +237,14 @@ export default function Signup() {
 
         .su-submit-btn {
           width: 100%; height: 44px;
-          background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+          background: #0f172a;
           color: white; border: none; border-radius: 9px;
           font-size: 0.92rem; font-weight: 600;
           font-family: 'DM Sans', sans-serif;
           cursor: pointer;
           display: flex; align-items: center; justify-content: center; gap: 8px;
           transition: opacity 0.2s, transform 0.1s;
-          box-shadow: 0 4px 14px rgba(99,102,241,0.3);
+          box-shadow: 0 4px 14px rgba(15,23,42,0.2);
           margin-top: 20px;
         }
         .su-submit-btn:hover:not(:disabled) { opacity: 0.92; transform: translateY(-1px); }
@@ -298,38 +278,12 @@ export default function Signup() {
         {/* LEFT */}
         <div className="signup-left">
           <div className="signup-left-bg" />
-          <div className="signup-grid" />
-          <div className="su-blob su-blob-1" />
-          <div className="su-blob su-blob-2" />
-          <div className="su-blob su-blob-3" />
 
           <div className="signup-left-inner">
-            <div className="su-brand">
-              <div className="su-brand-icon"><BookOpen size={20} /></div>
-              <span className="su-brand-name">EvalMate</span>
-            </div>
+            <Logo size="medium" />
 
-            <div className="su-hero">
-              <div className="su-step-tag">
-                <div className="su-step-dot" />
-                Faculty Portal
-              </div>
-              <h1 className="su-title">
-                Start evaluating<br />
-                with <span>AI precision.</span>
-              </h1>
-              <p className="su-sub">
-                Join hundreds of faculty members who save hours every week
-                with automated, rubric-driven grading.
-              </p>
-              <div className="feature-list">
-                {features.map((f, i) => (
-                  <div className="feature-item" key={i}>
-                    <div className="feature-check"><Check size={13} /></div>
-                    <span className="feature-text">{f}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="su-hero" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <AuthAnimation />
             </div>
 
             <div className="su-footer">© 2026 EvalMate. All rights reserved.</div>
@@ -338,6 +292,10 @@ export default function Signup() {
 
         {/* RIGHT */}
         <div className="signup-right">
+          <div style={{ position: 'absolute', top: '32px', right: '48px', zIndex: 10, display: 'flex', gap: '2rem' }}>
+            <Link to="/" style={{ color: '#64748b', fontWeight: 600, textDecoration: 'none', fontSize: '1.05rem', transition: 'color 0.2s' }} onMouseOver={e => e.target.style.color = '#7c3aed'} onMouseOut={e => e.target.style.color = '#64748b'}>Home</Link>
+            <Link to="/login" style={{ color: '#64748b', fontWeight: 600, textDecoration: 'none', fontSize: '1.05rem', transition: 'color 0.2s' }} onMouseOver={e => e.target.style.color = '#7c3aed'} onMouseOut={e => e.target.style.color = '#64748b'}>Log in</Link>
+          </div>
           <div className="su-form-box">
             <h2 className="su-form-heading">Create account</h2>
             <p className="su-form-sub">Fill in your details to get started with EvalMate</p>

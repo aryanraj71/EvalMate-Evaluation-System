@@ -30,21 +30,21 @@ function ScoreBar({ value, max, color }) {
 export default function ReviewAnswers() {
   const { assignmentId } = useParams();
   const navigate = useNavigate();
-  const location  = useLocation();
+  const location = useLocation();
 
-  const [students, setStudents]       = useState([]);  // grouped by student
-  const [questions, setQuestions]     = useState([]);  // assignment questions
-  const [studentIdx, setStudentIdx]   = useState(0);
-  const [answers, setAnswers]         = useState({});  // roll_number → { question_id: answer_text }
+  const [students, setStudents] = useState([]);  // grouped by student
+  const [questions, setQuestions] = useState([]);  // assignment questions
+  const [studentIdx, setStudentIdx] = useState(0);
+  const [answers, setAnswers] = useState({});  // roll_number → { question_id: answer_text }
   const [loadingAnswers, setLoadingAnswers] = useState(false);
 
   // per-question marks overrides  { eval_id: final_marks_string }
   const [marksOverride, setMarksOverride] = useState({});
-  const [comments, setComments]       = useState("");
-  const [submitting, setSubmitting]   = useState(false);
-  const [loading, setLoading]         = useState(true);
+  const [comments, setComments] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
   // which question cards are expanded
-  const [expanded, setExpanded]       = useState({});
+  const [expanded, setExpanded] = useState({});
   // Scoring mode — inherits from Results page, faculty can switch here too
   const [scoringMode, setScoringMode] = useState(
     () => location.state?.scoringMode === "llm" ? "llm" : "semantic"
@@ -63,7 +63,7 @@ export default function ReviewAnswers() {
       s.evaluations.forEach(ev => {
         const base = ev.reviewed && ev.final_marks != null ? ev.final_marks
           : scoringMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm
-          : ev.total_marks;
+            : ev.total_marks;
         init[ev.id] = String(base);
       });
     });
@@ -78,7 +78,7 @@ export default function ReviewAnswers() {
       ]);
 
       const evals = evalRes.data;
-      const qs    = qRes.data;
+      const qs = qRes.data;
       setQuestions(qs);
 
       // Group evaluations by student — use roll_number as primary key
@@ -89,8 +89,8 @@ export default function ReviewAnswers() {
         if (!map[key]) {
           map[key] = {
             student_name: ev.student_name,
-            roll_number:  ev.roll_number || ev.student_name,
-            evaluations:  []
+            roll_number: ev.roll_number || ev.student_name,
+            evaluations: []
           };
         }
         map[key].evaluations.push(ev);
@@ -106,7 +106,7 @@ export default function ReviewAnswers() {
       evals.forEach(ev => {
         const base = ev.reviewed && ev.final_marks != null ? ev.final_marks
           : initMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm
-          : ev.total_marks;
+            : ev.total_marks;
         init[ev.id] = String(base);
       });
       setMarksOverride(init);
@@ -123,7 +123,7 @@ export default function ReviewAnswers() {
         const normalised = String(startRoll).trim();
         const found = grouped.findIndex(
           s => String(s.roll_number).trim() === normalised ||
-               String(s.student_name).trim() === normalised
+            String(s.student_name).trim() === normalised
         );
         if (found !== -1) startIdx = found;
       }
@@ -180,7 +180,7 @@ export default function ReviewAnswers() {
       // Submit review for every question evaluation of this student
       await Promise.all(student.evaluations.map(ev => {
         const fd = new FormData();
-        fd.append("final_marks",      parseFloat(marksOverride[ev.id]));
+        fd.append("final_marks", parseFloat(marksOverride[ev.id]));
         fd.append("faculty_comments", comments);
         return API.put(`/evaluations/${ev.id}/review`, fd);
       }));
@@ -189,7 +189,8 @@ export default function ReviewAnswers() {
       if (studentIdx < students.length - 1) {
         await handleStudentNav(studentIdx + 1);
       } else {
-        navigate(`/assignment/${assignmentId}/results`);
+        sessionStorage.setItem("evalmate_results_assignment", assignmentId);
+        navigate("/results");
       }
     } catch (err) {
       alert("Error submitting: " + (err.response?.data?.detail || err.message));
@@ -241,8 +242,8 @@ export default function ReviewAnswers() {
   );
 
   // ── render ───────────────────────────────────────────────
-  const student     = students[studentIdx];
-  const studentAns  = answers[student.roll_number] || {};
+  const student = students[studentIdx];
+  const studentAns = answers[student.roll_number] || {};
 
   // Sort evaluations by question number
   const sortedEvals = [...student.evaluations].sort(
@@ -250,27 +251,33 @@ export default function ReviewAnswers() {
   );
 
   // Overall stats
-  const totalAI    = sortedEvals.reduce((s, e) => s + e.total_marks, 0);
-  const totalMax   = sortedEvals.reduce((s, e) => s + e.max_marks, 0);
+  const totalSem = sortedEvals.reduce((s, e) => s + (e.total_marks_sem ?? e.total_marks), 0);
+  const totalLLM = sortedEvals.every(e => e.total_marks_llm != null) ? sortedEvals.reduce((s, e) => s + e.total_marks_llm, 0) : null;
+  const totalAI = sortedEvals.reduce((s, e) => s + e.total_marks, 0);
+  const totalMax = sortedEvals.reduce((s, e) => s + e.max_marks, 0);
   const totalFinal = sortedEvals.reduce((s, e) => s + (parseFloat(marksOverride[e.id]) || 0), 0);
-  const avgConf    = sortedEvals.reduce((s, e) => s + e.confidence_score, 0) / sortedEvals.length;
-  const cs         = confStyle(avgConf);
 
-  // Review status for current student
-  const needsReview   = sortedEvals.some(e => e.needs_review && !e.reviewed);
+  // Calculate dynamic confidence based on the current scoring mode's total
+  const currentTotal = scoringMode === "llm" ? (totalLLM ?? totalAI) : totalAI;
+  const avgConf = totalMax > 0 ? (currentTotal / totalMax) : 0;
+  const cs = confStyle(avgConf);
+
+  // Review status for current student (Dynamic based on 75% threshold)
   const alreadyReviewed = sortedEvals.every(e => e.reviewed);
-  const reviewStatusLabel = alreadyReviewed ? "✓ Already Reviewed"
-    : needsReview ? "⚠ Needs Review"
-    : "✓ High Confidence";
+  const needsReview = alreadyReviewed ? false : (avgConf < 0.75);
+
+  const reviewStatusLabel = alreadyReviewed ? "Already Reviewed"
+    : needsReview ? "Needs Review"
+      : "High Confidence";
   const reviewStatusStyle = alreadyReviewed
     ? { bg: "#dcfce7", color: "#15803d" }
     : needsReview
-    ? { bg: "#fef9c3", color: "#92400e" }
-    : { bg: "#dbeafe", color: "#1d4ed8" };
+      ? { bg: "#fef9c3", color: "#92400e" }
+      : { bg: "#dbeafe", color: "#1d4ed8" };
 
   // Counts for header
   const needsReviewCount = students.filter(s => s.evaluations.some(e => e.needs_review && !e.reviewed)).length;
-  const reviewedCount    = students.filter(s => s.evaluations.every(e => e.reviewed)).length;
+  const reviewedCount = students.filter(s => s.evaluations.every(e => e.reviewed)).length;
 
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", width: "100%" }}>
@@ -279,10 +286,10 @@ export default function ReviewAnswers() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", background: "var(--bg-tertiary)", borderRadius: 10, padding: 3 }}>
           <button onClick={() => setScoringMode("semantic")} style={{ padding: "6px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "semantic" ? "white" : "transparent", color: scoringMode === "semantic" ? "var(--accent-color)" : "var(--text-secondary)", boxShadow: scoringMode === "semantic" ? "0 1px 4px rgba(0,0,0,0.1)" : "none" }}>
-            <Cpu size={13} /> Semantic + LLM
+            <Cpu size={13} /> Semantic
           </button>
           <button onClick={() => setScoringMode("llm")} style={{ padding: "6px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 6, background: scoringMode === "llm" ? "white" : "transparent", color: scoringMode === "llm" ? "#7c3aed" : "var(--text-secondary)", boxShadow: scoringMode === "llm" ? "0 1px 4px rgba(0,0,0,0.1)" : "none" }}>
-            <Brain size={13} /> Full LLM
+            <Brain size={13} /> LLM
           </button>
         </div>
         <span style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", fontStyle: "italic" }}>
@@ -303,12 +310,12 @@ export default function ReviewAnswers() {
           {/* Status summary pills */}
           {needsReviewCount > 0 && (
             <span style={{ background: "#fef9c3", color: "#92400e", padding: "4px 12px", borderRadius: 99, fontSize: "0.8rem", fontWeight: 700 }}>
-              ⚠ {needsReviewCount} need review
+              {needsReviewCount} need review
             </span>
           )}
           {reviewedCount > 0 && (
             <span style={{ background: "#dcfce7", color: "#15803d", padding: "4px 12px", borderRadius: 99, fontSize: "0.8rem", fontWeight: 700 }}>
-              ✓ {reviewedCount} reviewed
+              {reviewedCount} reviewed
             </span>
           )}
           <span style={{ fontSize: "0.92rem", fontWeight: 600, color: "var(--text-secondary)" }}>
@@ -365,16 +372,19 @@ export default function ReviewAnswers() {
 
           {/* Right: score summary */}
           <div style={{ display: "flex", gap: 16 }}>
-            <div style={{ textAlign: "center", background: "var(--bg-secondary)", padding: "14px 20px", borderRadius: 12, border: "1px solid var(--border-light)", minWidth: 110 }}>
-              <p style={{ margin: "0 0 4px", fontSize: "0.72rem", color: "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>AI Score</p>
-              <p style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "var(--accent-color)" }}>
-                {totalAI.toFixed(1)}<span style={{ fontSize: "1rem", color: "var(--text-tertiary)", fontWeight: 600 }}>/{totalMax}</span>
+            {/* Box 1: Semantic AI Score */}
+            <div style={{ textAlign: "center", background: "#f0fdf4", padding: "14px 20px", borderRadius: 12, border: "1px solid #bbf7d0", minWidth: 100 }}>
+              <p style={{ margin: "0 0 4px", fontSize: "0.72rem", color: "#15803d", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Semantic Score</p>
+              <p style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "#15803d" }}>
+                {totalAI.toFixed(1)}<span style={{ fontSize: "1rem", color: "#6ee7b7", fontWeight: 600 }}>/{totalMax}</span>
               </p>
             </div>
-            <div style={{ textAlign: "center", background: "#f0fdf4", padding: "14px 20px", borderRadius: 12, border: "1px solid #bbf7d0", minWidth: 110 }}>
-              <p style={{ margin: "0 0 4px", fontSize: "0.72rem", color: "#15803d", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Your Score</p>
-              <p style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: "#15803d" }}>
-                {totalFinal.toFixed(1)}<span style={{ fontSize: "1rem", color: "#6ee7b7", fontWeight: 600 }}>/{totalMax}</span>
+
+            {/* Box 2: LLM AI Score */}
+            <div style={{ textAlign: "center", background: scoringMode === "llm" ? "#f3e8ff" : "var(--bg-secondary)", padding: "14px 20px", borderRadius: 12, border: scoringMode === "llm" ? "1px solid #d8b4fe" : "1px dashed var(--border-light)", minWidth: 100, opacity: scoringMode === "llm" ? 1 : 0.6 }}>
+              <p style={{ margin: "0 0 4px", fontSize: "0.72rem", color: scoringMode === "llm" ? "#7e22ce" : "var(--text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>LLM Score</p>
+              <p style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color: scoringMode === "llm" ? "#7e22ce" : "var(--text-tertiary)" }}>
+                {totalLLM != null ? totalLLM.toFixed(1) : "—"}<span style={{ fontSize: "1rem", color: scoringMode === "llm" ? "#a855f7" : "var(--text-tertiary)", fontWeight: 600, opacity: totalLLM != null ? 1 : 0 }}>/{totalMax}</span>
               </p>
             </div>
           </div>
@@ -390,13 +400,13 @@ export default function ReviewAnswers() {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
         {sortedEvals.map((ev) => {
-          const qNum    = questionNumber(ev.question_id);
-          const qText   = questionText(ev.question_id);
-          const qMax    = ev.max_marks;
+          const qNum = questionNumber(ev.question_id);
+          const qText = questionText(ev.question_id);
+          const qMax = ev.max_marks;
           const ansText = studentAns[ev.question_id] || null;
-          const isOpen  = expanded[ev.question_id] !== false;
-          const ecs     = confStyle(ev.confidence_score);
-          const qFinal  = parseFloat(marksOverride[ev.id]) || 0;
+          const isOpen = expanded[ev.question_id] !== false;
+          const ecs = confStyle(ev.confidence_score);
+          const qFinal = parseFloat(marksOverride[ev.id]) || 0;
 
           return (
             <div key={ev.id} className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -422,17 +432,23 @@ export default function ReviewAnswers() {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0, marginLeft: 16 }}>
+                  {/* Word limit penalty badge */}
+                  {ev.word_limit_penalty_applied && (
+                    <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "3px 10px", borderRadius: 99, fontSize: "0.72rem", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }} title={`Penalty applied: ${ev.word_count}/${ev.word_limit} words`}>
+                      <AlertTriangle size={12} /> Limit Penalty
+                    </div>
+                  )}
                   {/* Per-question confidence */}
                   <span style={{ background: ecs.bg, color: ecs.color, padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 700 }}>
                     {(ev.confidence_score * 100).toFixed(0)}% conf
                   </span>
-                  {/* AI score */}
+                  {/* AI scores */}
                   <span style={{ fontSize: "0.88rem", color: "var(--text-secondary)", fontWeight: 600 }}>
-                    AI: <b style={{ color: "var(--text-primary)" }}>{ev.total_marks.toFixed(1)}</b>/{qMax}
+                    SEM: <b style={{ color: "var(--text-primary)" }}>{(ev.total_marks_sem ?? ev.total_marks).toFixed(1)}</b>/{qMax}
                   </span>
-                  {/* Your override */}
-                  <span style={{ fontSize: "0.88rem", color: "#15803d", fontWeight: 600 }}>
-                    You: <b>{qFinal.toFixed(1)}</b>/{qMax}
+                  <span style={{ fontSize: "0.88rem", color: "#7c3aed", fontWeight: 600 }}>
+                    LLM: <b>{ev.total_marks_llm != null ? ev.total_marks_llm.toFixed(1) : "-"}</b>
+                    {ev.total_marks_llm != null && `/${qMax}`}
                   </span>
                   {isOpen ? <ChevronUp size={18} color="var(--text-tertiary)" /> : <ChevronDown size={18} color="var(--text-tertiary)" />}
                 </div>
@@ -441,6 +457,22 @@ export default function ReviewAnswers() {
               {/* Question body — collapsible */}
               {isOpen && (
                 <div style={{ padding: "20px 22px" }}>
+
+                  {/* Word limit penalty details */}
+                  {ev.word_limit_penalty_applied && (
+                    <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", padding: "10px 14px", borderRadius: 10, marginBottom: 18, display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ background: "#ffe4e6", padding: 8, borderRadius: 8, color: "#e11d48" }}>
+                        <AlertTriangle size={16} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ margin: 0, fontSize: "0.85rem", fontWeight: 700, color: "#9f1239" }}>Word Limit Penalty Applied</p>
+                        <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "#be123c" }}>
+                          Answer has only <b>{ev.word_count}</b> words (Limit: {ev.word_limit}).
+                          The overall AI score has been reduced to ensure consistency with grading standards.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Student's Answer */}
                   <div style={{ marginBottom: 20 }}>
@@ -563,11 +595,17 @@ export default function ReviewAnswers() {
         {/* Total summary */}
         <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
           <div style={{ padding: "10px 18px", background: "var(--bg-secondary)", borderRadius: 9, border: "1px solid var(--border-light)" }}>
-            <span style={{ fontSize: "0.78rem", color: "var(--text-tertiary)", fontWeight: 600, display: "block", marginBottom: 2 }}>AI TOTAL</span>
+            <span style={{ fontSize: "0.78rem", color: "var(--text-tertiary)", fontWeight: 600, display: "block", marginBottom: 2 }}>SEMANTIC AI</span>
             <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--accent-color)" }}>{totalAI.toFixed(1)} / {totalMax}</span>
           </div>
+          {totalLLM != null && (
+            <div style={{ padding: "10px 18px", background: "#f3e8ff", borderRadius: 9, border: "1px solid #d8b4fe" }}>
+              <span style={{ fontSize: "0.78rem", color: "#7e22ce", fontWeight: 600, display: "block", marginBottom: 2 }}>LLM AI</span>
+              <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "#7e22ce" }}>{totalLLM.toFixed(1)} / {totalMax}</span>
+            </div>
+          )}
           <div style={{ padding: "10px 18px", background: "#f0fdf4", borderRadius: 9, border: "1px solid #bbf7d0" }}>
-            <span style={{ fontSize: "0.78rem", color: "#15803d", fontWeight: 600, display: "block", marginBottom: 2 }}>YOUR TOTAL</span>
+            <span style={{ fontSize: "0.78rem", color: "#15803d", fontWeight: 600, display: "block", marginBottom: 2 }}>FINAL SCORE</span>
             <span style={{ fontWeight: 800, fontSize: "1.1rem", color: "#15803d" }}>{totalFinal.toFixed(1)} / {totalMax}</span>
           </div>
         </div>

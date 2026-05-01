@@ -4,21 +4,22 @@ import { AuthContext } from "../App";
 import API from "../services/api";
 import {
   ChevronDown, BarChart3, Users, Award, FileText,
-  TrendingUp, AlertCircle, CheckCircle, Sparkles, Plus, X, Info
+  TrendingUp, AlertCircle, CheckCircle, Sparkles, Plus, X, Info,
+  Cpu, Brain
 } from "lucide-react";
 
 // ── Persist selected assignment per-user in sessionStorage ───────────────────
 // sessionStorage clears on tab close / logout, so "until logout" is satisfied.
 const SEL_KEY = "evalmate_dashboard_assignment";
-const getPersistedId  = ()  => sessionStorage.getItem(SEL_KEY) || "";
-const persistId       = (id) => { if (id) sessionStorage.setItem(SEL_KEY, id); else sessionStorage.removeItem(SEL_KEY); };
+const getPersistedId = () => sessionStorage.getItem(SEL_KEY) || "";
+const persistId = (id) => { if (id) sessionStorage.setItem(SEL_KEY, id); else sessionStorage.removeItem(SEL_KEY); };
 
 function DifficultyBadge({ level }) {
   const map = {
-    Easy:   { bg: "#dcfce7", color: "#15803d" },
+    Easy: { bg: "#dcfce7", color: "#15803d" },
     Medium: { bg: "#fef9c3", color: "#92400e" },
-    Hard:   { bg: "#fee2e2", color: "#b91c1c" },
-    "N/A":  { bg: "#f1f5f9", color: "#64748b" },
+    Hard: { bg: "#fee2e2", color: "#b91c1c" },
+    "N/A": { bg: "#f1f5f9", color: "#64748b" },
   };
   const s = map[level] || map["N/A"];
   return (
@@ -38,17 +39,17 @@ function ProgressBar({ value, color }) {
 
 function ScoreDistChart({ data, markBands }) {
   const displayData = markBands || data;
-  const bands       = Object.keys(displayData);
-  const counts      = bands.map(b => displayData[b] || 0);
-  const maxCount    = Math.max(...counts, 1);
-  const colors      = ["#22c55e", "#84cc16", "#f59e0b", "#f97316", "#ef4444"];
-  const total       = counts.reduce((a, b) => a + b, 0);
+  const bands = Object.keys(displayData);
+  const counts = bands.map(b => displayData[b] || 0);
+  const maxCount = Math.max(...counts, 1);
+  const colors = ["#22c55e", "#84cc16", "#f59e0b", "#f97316", "#ef4444"];
+  const total = counts.reduce((a, b) => a + b, 0);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {bands.map((band, i) => {
         const count = displayData[band] || 0;
-        const pct   = (count / maxCount) * 100;
-        const spct  = total > 0 ? Math.round((count / total) * 100) : 0;
+        const pct = (count / maxCount) * 100;
+        const spct = total > 0 ? Math.round((count / total) * 100) : 0;
         return (
           <div key={band} style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ width: 64, fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600, textAlign: "right", flexShrink: 0 }}>{band}</span>
@@ -70,14 +71,24 @@ function ScoreDistChart({ data, markBands }) {
 }
 
 // ── AI Insights Modal ────────────────────────────────────────────────────────
-function AIInsightsModal({ analytics, onClose }) {
-  const lq   = analytics?.ai_insights?.lowest_question;
-  const sp   = analytics?.ai_insights?.struggled_percent;
-  const qp   = analytics?.question_performance || [];
+function AIInsightsModal({ analytics, distMode, onClose }) {
+  // Pick the right insights block based on distMode
+  const isLlm = distMode === "llm" && analytics?.ai_insights_llm != null;
+  const insights = isLlm ? analytics.ai_insights_llm : analytics.ai_insights;
+  const lq = insights?.lowest_question;
+  const sp = insights?.struggled_percent;
+  const avg = insights?.overall_avg ?? analytics?.overall_avg;
+
+  // Best question from question_performance (always semantic-based, for reference)
+  const qp = analytics?.question_performance || [];
   const scored = qp.filter(q => q.avg_score !== null);
-  const best = scored.length > 0 ? scored.reduce((a, b) =>
-    (a.avg_score / a.max_marks) > (b.avg_score / b.max_marks) ? a : b) : null;
-  const avg  = analytics?.overall_avg;
+  const best = scored.length > 0
+    ? scored.reduce((a, b) => (a.avg_score / a.max_marks) > (b.avg_score / b.max_marks) ? a : b)
+    : null;
+
+  const modeLabel = isLlm ? "LLM" : "Semantic";
+  const modeBg = isLlm ? "#ede9fe" : "#eef2ff";
+  const modeColor = isLlm ? "#7c3aed" : "#4f46e5";
 
   return (
     <div style={{
@@ -86,37 +97,50 @@ function AIInsightsModal({ analytics, onClose }) {
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24
     }} onClick={onClose}>
       <div
-        style={{ background: "white", borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", boxShadow: "0 25px 50px rgba(0,0,0,0.2)", animation: "fadeUp 0.2s ease" }}
+        style={{ background: "white", borderRadius: 16, padding: 32, maxWidth: 480, width: "100%", boxShadow: "0 25px 50px rgba(0,0,0,0.2)", animation: "fadeUp 0.2s ease" }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ padding: 8, background: "#fef9c3", borderRadius: 10, color: "#92400e" }}><Sparkles size={18} /></div>
-            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>AI Insights</h3>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>AI Insights</h3>
+              <span style={{ fontSize: "0.72rem", fontWeight: 600, background: modeBg, color: modeColor, padding: "2px 8px", borderRadius: 99 }}>{modeLabel}</span>
+            </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", padding: 4, borderRadius: 6 }}>
             <X size={20} />
           </button>
         </div>
 
+        {/* LLM not available notice */}
+        {distMode === "llm" && !analytics?.ai_insights_llm && (
+          <div style={{ background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
+            <p style={{ margin: 0, fontSize: "0.85rem", color: "#5b21b6" }}>
+              🔒 LLM insights not available yet. Run LLM assessment from the Results page first.
+            </p>
+          </div>
+        )}
+
         {!lq ? (
           <p style={{ color: "var(--text-tertiary)", fontSize: "0.9rem", textAlign: "center", padding: "20px 0" }}>
-            Evaluate answer scripts to generate AI insights.
+            Evaluate answer scripts to generate insights.
           </p>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+
             {/* Hardest question */}
             {(() => {
               const ratio = lq.max_marks > 0 ? lq.avg_score / lq.max_marks : 0;
               const diffColor = ratio >= 0.75 ? "#15803d" : ratio >= 0.55 ? "#92400e" : "#b91c1c";
               return (
                 <div style={{ padding: "12px 16px", background: "#fef2f2", borderRadius: 10, borderLeft: "4px solid #ef4444" }}>
-                  <p style={{ fontSize: "0.88rem", color: "#7f1d1d", lineHeight: 1.6, margin: 0, fontWeight: 600 }}>📉 Hardest Question</p>
-                  <p style={{ fontSize: "0.85rem", color: "#7f1d1d", lineHeight: 1.5, margin: "4px 0 0" }}>
-                    Q{lq.question_number} had the lowest avg — <strong>{lq.avg_score}/{lq.max_marks}</strong>
-                    {" "}(<span style={{ color: diffColor, fontWeight: 700 }}>{Math.round(ratio * 100)}%</span>).
-                    {lq.question_text ? ` "${lq.question_text}"` : ""}
+                  <p style={{ fontSize: "0.85rem", color: "#7f1d1d", margin: 0, fontWeight: 700 }}>📉 Hardest Question</p>
+                  <p style={{ fontSize: "0.83rem", color: "#7f1d1d", lineHeight: 1.5, margin: "4px 0 0" }}>
+                    Q{lq.question_number} — avg <strong>{lq.avg_score}/{lq.max_marks}</strong>
+                    {" "}(<span style={{ color: diffColor, fontWeight: 700 }}>{Math.round(ratio * 100)}%</span>)
+                    {lq.question_text ? <em style={{ opacity: 0.8 }}> · "{lq.question_text.slice(0, 60)}{lq.question_text.length > 60 ? "…" : ""}"</em> : ""}
                   </p>
                 </div>
               );
@@ -125,12 +149,12 @@ function AIInsightsModal({ analytics, onClose }) {
             {/* Struggle rate */}
             {sp !== null && sp !== undefined && (
               <div style={{ padding: "12px 16px", background: sp > 50 ? "#fef9c3" : "#f0fdf4", borderRadius: 10, borderLeft: `4px solid ${sp > 50 ? "#f59e0b" : "#22c55e"}` }}>
-                <p style={{ fontSize: "0.88rem", color: sp > 50 ? "#78350f" : "#14532d", lineHeight: 1.6, margin: 0, fontWeight: 600 }}>
+                <p style={{ fontSize: "0.85rem", fontWeight: 700, color: sp > 50 ? "#78350f" : "#14532d", margin: 0 }}>
                   {sp > 50 ? "😓 High Struggle Rate" : "👍 Manageable Difficulty"}
                 </p>
-                <p style={{ fontSize: "0.85rem", color: sp > 50 ? "#78350f" : "#14532d", lineHeight: 1.5, margin: "4px 0 0" }}>
+                <p style={{ fontSize: "0.83rem", color: sp > 50 ? "#78350f" : "#14532d", lineHeight: 1.5, margin: "4px 0 0" }}>
                   <strong>{sp}%</strong> of students scored below 50% on Q{lq.question_number}.
-                  {sp > 50 ? " Consider revisiting this topic in class." : " Most students handled it well."}
+                  {sp > 50 ? " Consider revisiting this topic." : " Most students did well."}
                 </p>
               </div>
             )}
@@ -138,10 +162,10 @@ function AIInsightsModal({ analytics, onClose }) {
             {/* Best question */}
             {best && best.question_number !== lq.question_number && (
               <div style={{ padding: "12px 16px", background: "#f0fdf4", borderRadius: 10, borderLeft: "4px solid #22c55e" }}>
-                <p style={{ fontSize: "0.88rem", color: "#14532d", lineHeight: 1.6, margin: 0, fontWeight: 600 }}>✅ Easiest Question</p>
-                <p style={{ fontSize: "0.85rem", color: "#14532d", lineHeight: 1.5, margin: "4px 0 0" }}>
-                  Q{best.question_number} had best performance — avg <strong>{best.avg_score}/{best.max_marks}</strong>
-                  {" "}({Math.round((best.avg_score / best.max_marks) * 100)}%).
+                <p style={{ fontSize: "0.85rem", fontWeight: 700, color: "#14532d", margin: 0 }}>✅ Easiest Question</p>
+                <p style={{ fontSize: "0.83rem", color: "#14532d", lineHeight: 1.5, margin: "4px 0 0" }}>
+                  Q{best.question_number} — avg <strong>{best.avg_score}/{best.max_marks}</strong>
+                  {" "}({Math.round((best.avg_score / best.max_marks) * 100)}%)
                 </p>
               </div>
             )}
@@ -153,38 +177,14 @@ function AIInsightsModal({ analytics, onClose }) {
                 background: avg >= 70 ? "#f0fdf4" : avg >= 50 ? "#fef9c3" : "#fef2f2",
                 borderLeft: `4px solid ${avg >= 70 ? "#22c55e" : avg >= 50 ? "#f59e0b" : "#ef4444"}`
               }}>
-                <p style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-secondary)", margin: 0 }}>📊 Class Performance</p>
-                <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", margin: "4px 0 0" }}>
-                  Class average: <strong>{avg}%</strong>
-                  {avg >= 70 ? " — Class is performing well." : avg >= 50 ? " — Moderate performance." : " — Class needs attention."}
+                <p style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-secondary)", margin: 0 }}>📊 Class Average ({modeLabel})</p>
+                <p style={{ fontSize: "0.83rem", color: "var(--text-secondary)", margin: "4px 0 0" }}>
+                  <strong>{avg}%</strong>
+                  {avg >= 70 ? " — Performing well." : avg >= 50 ? " — Moderate performance." : " — Needs attention."}
                 </p>
               </div>
             )}
 
-            {/* Per-question breakdown */}
-            {scored.length > 0 && (
-              <div style={{ padding: "12px 16px", background: "var(--bg-tertiary)", borderRadius: 10 }}>
-                <p style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-primary)", margin: "0 0 10px" }}>📋 Per-Question Breakdown</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {scored.map(q => {
-                    const r   = q.max_marks > 0 ? q.avg_score / q.max_marks : 0;
-                    const col = r >= 0.75 ? "#22c55e" : r >= 0.55 ? "#f59e0b" : "#ef4444";
-                    return (
-                      <div key={q.question_number} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ width: 28, fontWeight: 700, fontSize: "0.82rem", color: "var(--text-secondary)" }}>Q{q.question_number}</span>
-                        <div style={{ flex: 1, background: "var(--bg-secondary)", borderRadius: 99, height: 8, overflow: "hidden" }}>
-                          <div style={{ width: `${r * 100}%`, height: "100%", background: col, borderRadius: 99, transition: "width 0.6s ease" }} />
-                        </div>
-                        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: col, width: 48, textAlign: "right" }}>
-                          {q.avg_score}/{q.max_marks}
-                        </span>
-                        <DifficultyBadge level={q.difficulty} />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -194,17 +194,22 @@ function AIInsightsModal({ analytics, onClose }) {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [assignments,       setAssignments]       = useState([]);
-  const [selectedId,        setSelectedId]        = useState(getPersistedId);
-  const [analytics,         setAnalytics]         = useState(null);
-  const [loadingAssignments,setLoadingAssignments] = useState(true);
-  const [loadingAnalytics,  setLoadingAnalytics]  = useState(false);
-  const [dropdownOpen,      setDropdownOpen]      = useState(false);
-  const [showInsights,      setShowInsights]      = useState(false);
+  const [assignments, setAssignments] = useState([]);
+  const [selectedId, setSelectedId] = useState(getPersistedId);
+  const [analytics, setAnalytics] = useState(null);
+  const [loadingAssignments, setLoadingAssignments] = useState(true);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
+  // Score distribution mode — persisted until logout
+  const [distMode, setDistMode] = useState(
+    () => sessionStorage.getItem('evalmate_dashboard_dist_mode') || "semantic"
+  );
+  const setDistModePersist = (m) => { setDistMode(m); sessionStorage.setItem('evalmate_dashboard_dist_mode', m); };
 
-  const navigate   = useNavigate();
-  const { user }   = useContext(AuthContext);
-  const dropRef    = useRef(null);
+  const navigate = useNavigate();
+  const { user } = useContext(AuthContext);
+  const dropRef = useRef(null);
 
   // Load assignments on mount
   useEffect(() => {
@@ -255,14 +260,14 @@ export default function Dashboard() {
     <div className="dashboard-page">
       {/* AI Insights modal */}
       {showInsights && analytics && (
-        <AIInsightsModal analytics={analytics} onClose={() => setShowInsights(false)} />
+        <AIInsightsModal analytics={analytics} distMode={distMode} onClose={() => setShowInsights(false)} />
       )}
 
       {/* ── Header ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
         <div>
           <h2 style={{ fontSize: "1.8rem", fontWeight: 700, marginBottom: 8, color: "var(--text-primary)" }}>
-            Welcome back, {user?.name?.split(" ")[0]}! 👋
+            Welcome back, {user?.name?.split(" ")[0]}!
           </h2>
           <p style={{ color: "var(--text-secondary)" }}>
             {selectedAssignment ? `Viewing: ${selectedAssignment.assignment_name}` : "Select an assignment to view its analytics"}
@@ -363,9 +368,9 @@ export default function Dashboard() {
             {/* Stats row */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
               {[
-                { label: "Uploaded",   value: ep.scripts_uploaded,  icon: <FileText size={14} />,     color: "#6366f1", bg: "#eef2ff" },
-                { label: "Evaluated",  value: ep.ai_evaluated,      icon: <CheckCircle size={14} />,  color: "#22c55e", bg: "#dcfce7" },
-                { label: "Review",     value: ep.manual_review,     icon: <AlertCircle size={14} />,  color: "#f59e0b", bg: "#fef9c3" },
+                { label: "Uploaded", value: ep.scripts_uploaded, icon: <FileText size={14} />, color: "#6366f1", bg: "#eef2ff" },
+                { label: "Evaluated", value: ep.ai_evaluated, icon: <CheckCircle size={14} />, color: "#22c55e", bg: "#dcfce7" },
+                { label: "Review", value: ep.manual_review, icon: <AlertCircle size={14} />, color: "#f59e0b", bg: "#fef9c3" },
               ].map(item => (
                 <div key={item.label} style={{ padding: "12px 10px", background: item.bg, borderRadius: 10, textAlign: "center" }}>
                   <div style={{ color: item.color, display: "flex", justifyContent: "center", marginBottom: 4 }}>{item.icon}</div>
@@ -394,20 +399,42 @@ export default function Dashboard() {
 
           {/* Card 2 — Score Distribution */}
           <div className="card" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ padding: 8, background: "#ede9fe", borderRadius: 10, color: "#7c3aed" }}><BarChart3 size={18} /></div>
-              <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Score Distribution</h3>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ padding: 8, background: "#ede9fe", borderRadius: 10, color: "#7c3aed" }}><BarChart3 size={18} /></div>
+                <h3 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Score Distribution</h3>
+              </div>
+              {/* Mode toggle — only show Full LLM option if LLM data exists */}
+              <div style={{ display: "flex", background: "var(--bg-tertiary)", borderRadius: 8, padding: 3 }}>
+                <button
+                  onClick={() => setDistModePersist("semantic")}
+                  style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.75rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 5, background: distMode === "semantic" ? "white" : "transparent", color: distMode === "semantic" ? "var(--accent-color)" : "var(--text-secondary)", boxShadow: distMode === "semantic" ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}
+                >
+                  <Cpu size={11} /> Semantic
+                </button>
+                <button
+                  onClick={() => { if (analytics.mark_bands_llm) setDistModePersist("llm"); }}
+                  title={analytics.mark_bands_llm ? "LLM distribution" : "Run LLM assessment in Results page first"}
+                  style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: analytics.mark_bands_llm ? "pointer" : "not-allowed", fontWeight: 600, fontSize: "0.75rem", transition: "all 0.18s", display: "flex", alignItems: "center", gap: 5, background: distMode === "llm" ? "white" : "transparent", color: distMode === "llm" ? "#7c3aed" : analytics.mark_bands_llm ? "var(--text-secondary)" : "var(--text-tertiary)", boxShadow: distMode === "llm" ? "0 1px 3px rgba(0,0,0,0.1)" : "none", opacity: analytics.mark_bands_llm ? 1 : 0.5 }}
+                >
+                  <Brain size={11} /> LLM {!analytics.mark_bands_llm && "🔒"}
+                </button>
+              </div>
             </div>
             {analytics.maximum_marks && (
-              <p style={{ fontSize: "0.78rem", color: "var(--text-tertiary)", margin: 0, fontStyle: "italic" }}>
-                Based on actual marks out of {analytics.maximum_marks}
+              <p style={{ fontSize: "0.75rem", color: "var(--text-tertiary)", margin: 0, fontStyle: "italic" }}>
+                {distMode === "llm" ? "LLM assessment scores" : "Semantic assessment scores"} · out of {analytics.maximum_marks} marks
               </p>
             )}
-            {Object.values(analytics.score_distribution).every(v => v === 0) ? (
-              <p style={{ color: "var(--text-tertiary)", fontSize: "0.88rem", textAlign: "center", padding: "20px 0" }}>No evaluation data yet.</p>
-            ) : (
-              <ScoreDistChart data={analytics.score_distribution} markBands={analytics.mark_bands} />
-            )}
+            {(() => {
+              const useData = distMode === "llm" && analytics.mark_bands_llm ? analytics.score_distribution_llm : analytics.score_distribution;
+              const useBands = distMode === "llm" && analytics.mark_bands_llm ? analytics.mark_bands_llm : analytics.mark_bands;
+              return Object.values(useData).every(v => v === 0) ? (
+                <p style={{ color: "var(--text-tertiary)", fontSize: "0.88rem", textAlign: "center", padding: "20px 0" }}>No evaluation data yet.</p>
+              ) : (
+                <ScoreDistChart data={useData} markBands={useBands} />
+              );
+            })()}
           </div>
 
           {/* Card 3 — Question Performance */}
@@ -461,9 +488,9 @@ export default function Dashboard() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {analytics.top_students.map((s, i) => {
-                  const medals    = ["🥇","🥈","🥉","4️⃣","5️⃣"];
-                  const barColors = ["#f59e0b","#94a3b8","#d97706","#6366f1","#6366f1"];
-                  const bgs       = ["#fef9c3","#f8fafc","#fef3c7","var(--bg-secondary)","var(--bg-secondary)"];
+                  const medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"];
+                  const barColors = ["#f59e0b", "#94a3b8", "#d97706", "#6366f1", "#6366f1"];
+                  const bgs = ["#fef9c3", "#f8fafc", "#fef3c7", "var(--bg-secondary)", "var(--bg-secondary)"];
                   return (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, background: bgs[i] }}>
                       <span style={{ fontSize: "1.2rem", flexShrink: 0 }}>{medals[i]}</span>

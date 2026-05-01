@@ -127,9 +127,13 @@ export default function Assignments() {
     }
     setSaving(true);
     try {
-      const form = new FormData();
-      Object.entries(editData).forEach(([k, v]) => form.append(k, v));
-      await API.put(`/assignments/${id}`, form);
+      const payload = {
+        assignment_name: editData.assignment_name,
+        subject: editData.subject,
+        date: editData.date,
+        maximum_marks: parseFloat(editData.maximum_marks)
+      };
+      await API.put(`/assignments/${id}`, payload);
       await fetchAssignments();
       setDetails(p => { const c = { ...p }; delete c[id]; return c; }); // invalidate cache
       setEditingId(null);
@@ -352,7 +356,10 @@ export default function Assignments() {
                           <button onClick={() => navigate(`/assignment/${a.id}/upload-answers`)} className="btn btn-secondary" style={{ fontSize: "0.85rem" }}>
                             <Upload size={15} /> Upload Scripts
                           </button>
-                          <button onClick={() => navigate(`/assignment/${a.id}/results`)} className="btn btn-primary" style={{ fontSize: "0.85rem" }}>
+                          <button onClick={() => {
+                            sessionStorage.setItem("evalmate_results_assignment", a.id);
+                            navigate("/results");
+                          }} className="btn btn-primary" style={{ fontSize: "0.85rem" }}>
                             <BarChart2 size={15} /> View Results
                           </button>
                         </div>
