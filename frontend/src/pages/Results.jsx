@@ -150,16 +150,21 @@ export default function Results() {
         if (!evalMap[key]) {
           evalMap[key] = {
             student_name: ev.student_name, roll_number: ev.roll_number,
-            total_marks: 0, total_marks_llm: 0, max_marks: 0, evaluations: [], needs_review: false
+            total_marks: 0, total_marks_llm: 0, max_marks: 0, evaluations: [], needs_review: false, reviewed: false
           };
         }
-        // Store both: combined (semantic+LLM for examples) and full-LLM totals
-        const baseMarks = ev.reviewed ? (ev.final_marks ?? ev.total_marks) : ev.total_marks;
+        // Use mode-specific final marks (human overrides) if they exist
+        const baseMarks    = ev.final_marks != null ? ev.final_marks : ev.total_marks;
+        const baseMarksLlm = ev.final_marks_llm != null ? ev.final_marks_llm : (ev.total_marks_llm ?? ev.total_marks);
+        
         evalMap[key].total_marks     += baseMarks;
-        evalMap[key].total_marks_llm += ev.total_marks_llm ?? ev.total_marks;
+        evalMap[key].total_marks_llm += baseMarksLlm;
         evalMap[key].max_marks       += ev.max_marks;
         evalMap[key].evaluations.push(ev);
+        
+        // Student-level flags
         if (ev.needs_review && !ev.reviewed) evalMap[key].needs_review = true;
+        if (ev.reviewed) evalMap[key].reviewed = true;
       });
 
       const studentMap = {};
@@ -647,12 +652,18 @@ export default function Results() {
                             if (s.status === "pending") {
                               return <span style={{ background: "#f1f5f9", color: "#64748b", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>Pending</span>;
                             }
-                            // Calculate dynamic status based on current mode's score
+                            
+                            // If faculty has reviewed it, it's ALWAYS "Evaluated"
+                            if (s.reviewed) {
+                              return <span style={{ background: "#dcfce7", color: "#15803d", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>Evaluated</span>;
+                            }
+
+                            // Otherwise check if it's low confidence
                             const score = scoringMode === "llm" ? s.total_marks_llm : s.total_marks;
                             const pct = s.max_marks > 0 ? (score / s.max_marks) : 0;
                             const isLow = pct < 0.75;
 
-                            if (isLow && !s.reviewed) {
+                            if (isLow) {
                               return <span style={{ background: "#fef9c3", color: "#92400e", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>Needs Review</span>;
                             } else {
                               return <span style={{ background: "#dcfce7", color: "#15803d", padding: "3px 10px", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600 }}>Evaluated</span>;

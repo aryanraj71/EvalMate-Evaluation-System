@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/login.png" alt="EvalMate Banner" width="100%"/>
+<img src="docs/images/landing.png" alt="EvalMate Banner" width="100%"/>
 
 # 🎓 EvalMate — AI-Assisted Academic Evaluation System
 
@@ -61,6 +61,11 @@
 
 ### 👁️ Human-in-the-Loop Review
 <img src="docs/images/review.png" alt="HITL Review" width="100%"/>
+
+---
+
+### 📈 Evaluation Results
+<img src="docs/images/result.png" alt="Evaluation Results" width="100%"/>
 
 ---
 
@@ -306,7 +311,7 @@ Contributions, issues, and feature requests are welcome!
 
 ## 👨‍💻 Author
 
-**Aryan Raj**  
+**Aryan Raj & Anshika Chauhan**  
 [![GitHub](https://img.shields.io/badge/GitHub-aryanraj71-181717?style=flat-square&logo=github)](https://github.com/aryanraj71)
 
 ---

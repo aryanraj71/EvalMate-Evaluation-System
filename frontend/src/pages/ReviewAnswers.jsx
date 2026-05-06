@@ -61,9 +61,9 @@ export default function ReviewAnswers() {
     const init = {};
     students.forEach(s => {
       s.evaluations.forEach(ev => {
-        const base = ev.reviewed && ev.final_marks != null ? ev.final_marks
-          : scoringMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm
-            : ev.total_marks;
+        const base = scoringMode === "llm"
+          ? (ev.final_marks_llm != null ? ev.final_marks_llm : (ev.total_marks_llm ?? ev.total_marks))
+          : (ev.final_marks != null ? ev.final_marks : ev.total_marks);
         init[ev.id] = String(base);
       });
     });
@@ -104,9 +104,9 @@ export default function ReviewAnswers() {
       const init = {};
       const initMode = location.state?.scoringMode === "llm" ? "llm" : "semantic";
       evals.forEach(ev => {
-        const base = ev.reviewed && ev.final_marks != null ? ev.final_marks
-          : initMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm
-            : ev.total_marks;
+        const base = initMode === "llm"
+          ? (ev.final_marks_llm != null ? ev.final_marks_llm : (ev.total_marks_llm ?? ev.total_marks))
+          : (ev.final_marks != null ? ev.final_marks : ev.total_marks);
         init[ev.id] = String(base);
       });
       setMarksOverride(init);
@@ -182,6 +182,7 @@ export default function ReviewAnswers() {
         const fd = new FormData();
         fd.append("final_marks", parseFloat(marksOverride[ev.id]));
         fd.append("faculty_comments", comments);
+        fd.append("mode", scoringMode);
         return API.put(`/evaluations/${ev.id}/review`, fd);
       }));
 
@@ -572,7 +573,10 @@ export default function ReviewAnswers() {
                     />
                     <span style={{ fontSize: "0.88rem", color: "#6b7280" }}>/ {qMax} marks</span>
                     <button
-                      onClick={() => setMarksOverride(p => ({ ...p, [ev.id]: String(ev.total_marks) }))}
+                      onClick={() => {
+                        const aiBase = scoringMode === "llm" && ev.total_marks_llm != null ? ev.total_marks_llm : ev.total_marks;
+                        setMarksOverride(p => ({ ...p, [ev.id]: String(aiBase) }));
+                      }}
                       style={{ marginLeft: "auto", fontSize: "0.78rem", background: "none", border: "none", color: "#6b7280", cursor: "pointer", textDecoration: "underline" }}
                     >
                       Reset to AI

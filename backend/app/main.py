@@ -2394,6 +2394,7 @@ async def review_evaluation(
     evaluation_id: str,
     final_marks: float = Form(...),
     faculty_comments: str = Form(None),
+    mode: str = Form("semantic"),
     current_faculty: dict = Depends(get_current_faculty)
 ):
     evaluation = await db.evaluations.find_one({"id": evaluation_id})
@@ -2406,15 +2407,18 @@ async def review_evaluation(
     if not assignment:
         raise HTTPException(status_code=403, detail="Unauthorized")
     
-    # ── FIX 3: standardise faculty-entered final marks too ──
     final_marks_std = standardise_marks(final_marks)
+
+    # Determine which field to update based on the scoring mode
+    update_field = "final_marks_llm" if mode == "llm" else "final_marks"
 
     await db.evaluations.update_one(
         {"id": evaluation_id},
         {"$set": {
-            "final_marks": final_marks_std,
+            update_field: final_marks_std,
             "faculty_comments": faculty_comments,
             "reviewed": True,
+            "needs_review": False,
             "reviewed_at": datetime.now(timezone.utc).isoformat(),
             "reviewed_by": current_faculty["id"]
         }}
