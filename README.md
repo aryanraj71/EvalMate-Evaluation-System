@@ -309,23 +309,9 @@ Contributions, issues, and feature requests are welcome!
 
 ---
 
-## 👨‍💻 Author
-
-**Aryan Raj & Anshika Chauhan**  
-[![GitHub](https://img.shields.io/badge/GitHub-aryanraj71-181717?style=flat-square&logo=github)](https://github.com/aryanraj71)
-
----
-
 ## 📄 License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
 
 ---
 
-<div align="center">
-
-Made with ❤️ for smarter academic evaluation
-
-⭐ **Star this repo if you find it useful!** ⭐
-
-</div>
